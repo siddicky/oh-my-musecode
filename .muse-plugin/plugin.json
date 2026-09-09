@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "name": "oh-my-musecode",
+  "displayName": "oh-my-musecode",
+  "version": "0.1.0",
+  "description": "A gated delivery pipeline for muse: deep-interview to ralplan to ralph, with deep-dive, trace, team and cancel.",
+  "compat": {
+    "source": "native",
+    "manifestDir": ".muse-plugin"
+  },
+  "capabilities": {
+    "skills": [
+      {
+        "id": "deep-interview",
+        "path": "skills/deep-interview/SKILL.md",
+        "enabledDefault": true
+      },
+      {
+        "id": "deep-dive",
+        "path": "skills/deep-dive/SKILL.md",
+        "enabledDefault": true
+      },
+      {
+        "id": "trace",
+        "path": "skills/trace/SKILL.md",
+        "enabledDefault": true
+      },
+      {
+        "id": "ralplan",
+        "path": "skills/ralplan/SKILL.md",
+        "enabledDefault": true
+      },
+      {
+        "id": "ralph",
+        "path": "skills/ralph/SKILL.md",
+        "enabledDefault": true
+      },
+      {
+        "id": "team",
+        "path": "skills/team/SKILL.md",
+        "enabledDefault": true
+      },
+      {
+        "id": "cancel",
+        "path": "skills/cancel/SKILL.md",
+        "enabledDefault": true
+      }
+    ],
+    "commands": [],
+    "hooks": [
+      {
+        "id": "omm-route",
+        "event": "UserPromptSubmit",
+        "command": [
+          "node",
+          "hooks/user-prompt-submit.mjs"
+        ],
+        "timeoutMs": 5000,
+        "statusMessage": "Checking for oh-my-musecode skills"
+      },
+      {
+        "id": "omm-bootstrap",
+        "event": "SessionStart",
+        "command": [
+          "node",
+          "hooks/session-start.mjs"
+        ],
+        "timeoutMs": 5000,
+        "statusMessage": "Preparing oh-my-musecode state"
+      },
+      {
+        "id": "omm-verification-reminder",
+        "event": "Stop",
+        "command": [
+          "node",
+          "hooks/stop.mjs"
+        ],
+        "timeoutMs": 5000,
+        "statusMessage": "Checking for an active ralph run"
+      }
+    ],
+    "mcpServers": [
+      {
+        "id": "omm-state",
+        "transport": "stdio",
+        "command": [
+          "node",
+          "dist/mcp/state-server.js"
+        ]
+      }
+    ],
+    "reminders": []
+  }
+}

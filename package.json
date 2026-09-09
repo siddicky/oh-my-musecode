@@ -1,0 +1,38 @@
+{
+  "name": "oh-my-musecode",
+  "version": "0.1.0",
+  "description": "An OMC-shaped delivery harness for Meta Muse Code: deep-interview -> ralplan -> ralph, plus deep-dive/trace, team and cancel.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test \"test/**/*.test.mjs\"",
+    "lint": "node scripts/verify-manifest.mjs && tsc -p tsconfig.json --noEmit",
+    "verify:manifest": "node scripts/verify-manifest.mjs",
+    "verify:skills": "node scripts/verify-skills.mjs",
+    "install:muse": "node scripts/install.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0"
+  },
+  "author": "Abdullah Siddique",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/siddicky/oh-my-musecode.git"
+  },
+  "keywords": [
+    "muse",
+    "muse-code",
+    "agent",
+    "harness",
+    "skills",
+    "orchestration"
+  ]
+}

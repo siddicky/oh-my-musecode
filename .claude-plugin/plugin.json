@@ -1,0 +1,30 @@
+{
+  "name": "oh-my-musecode",
+  "version": "0.1.0",
+  "description": "An OMC-shaped delivery harness for Meta Muse Code: deep-interview -> ralplan -> ralph, plus deep-dive/trace, team and cancel. Personas are rendered into subagent prompts rather than declared as agent definitions, because muse rejects `agents` as a plugin capability.",
+  "capabilities": {
+    "skills": [
+      "./skills/deep-interview",
+      "./skills/deep-dive",
+      "./skills/trace",
+      "./skills/ralplan",
+      "./skills/ralph",
+      "./skills/team",
+      "./skills/cancel"
+    ],
+    "hooks": [
+      "./hooks/hooks.json"
+    ],
+    "commands": [],
+    "mcpServers": [
+      {
+        "name": "omm-state",
+        "transport": "stdio",
+        "command": "node",
+        "args": [
+          "${MUSE_PLUGIN_ROOT}/dist/mcp/state-server.js"
+        ]
+      }
+    ]
+  }
+}

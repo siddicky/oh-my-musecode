@@ -1,0 +1,18 @@
+{
+  "name": "oh-my-musecode",
+  "owner": {
+    "name": "oh-my-musecode"
+  },
+  "metadata": {
+    "description": "An OMC-shaped delivery harness for Meta Muse Code.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "oh-my-musecode",
+      "source": "./",
+      "version": "0.1.0",
+      "description": "Ported oh-my-claudecode delivery pipeline for the muse CLI: deep-interview -> ralplan -> ralph, plus deep-dive/trace, team and cancel."
+    }
+  ]
+}
