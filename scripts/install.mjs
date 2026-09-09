@@ -57,6 +57,12 @@ function parseArgs(argv) {
         );
         process.exit(0);
         break;
+      case '--version': {
+        const pkg = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'package.json'), 'utf8'));
+        console.log(pkg.version);
+        process.exit(0);
+        break;
+      }
       default:
         fail(`unknown argument: ${argv[i]}`);
     }
