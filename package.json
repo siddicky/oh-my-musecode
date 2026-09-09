@@ -1,5 +1,5 @@
 {
-  "name": "oh-my-musecode",
+  "name": "@siddicky/oh-my-musecode",
   "version": "0.1.0",
   "description": "An OMC-shaped delivery harness for Meta Muse Code: deep-interview -> ralplan -> ralph, plus deep-dive/trace, team and cancel.",
   "type": "module",
@@ -34,5 +34,24 @@
     "harness",
     "skills",
     "orchestration"
-  ]
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist/",
+    "skills/",
+    "personas/",
+    "hooks/",
+    "scripts/",
+    "docs/",
+    ".muse-plugin/",
+    ".claude-plugin/",
+    "README.md",
+    "LICENSE"
+  ],
+  "bin": {
+    "oh-my-musecode": "scripts/install.mjs"
+  },
+  "prepublishOnly": "npm run build && npm test"
 }
