@@ -10,44 +10,14 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const INSTALLER = join(ROOT, 'scripts', 'install.mjs');
-
-/**
- * Runs the installer with a mandatory isolated config dir.
- * @param {string[]} args
- * @param {{ configHome: string, env?: Record<string,string> }} opts
- */
-function runInstaller(args, { configHome, env = {} } = {}) {
-  if (!configHome) throw new Error('runInstaller requires an isolated configHome');
-  const result = spawnSync('node', [INSTALLER, ...args], {
-    encoding: 'utf8',
-    env: { ...process.env, XDG_CONFIG_HOME: configHome, ...env },
-  });
-  return { ...result, output: `${result.stdout ?? ''}${result.stderr ?? ''}` };
-}
-
-/** A workspace plus an isolated muse config home, both removed afterwards. */
-function withSandbox(fn) {
-  const workspace = mkdtempSync(join(tmpdir(), 'omm-install-ws-'));
-  const configHome = mkdtempSync(join(tmpdir(), 'omm-install-cfg-'));
-  try {
-    return fn({ workspace, configHome, settings: join(configHome, 'muse', 'settings.json') });
-  } finally {
-    rmSync(workspace, { recursive: true, force: true });
-    rmSync(configHome, { recursive: true, force: true });
-  }
-}
+import { runInstaller, withSandbox } from './helpers/install-sandbox.mjs';
 
 test('install writes hooks and the mcp server into an isolated settings.json', () => {
-  withSandbox(({ workspace, configHome, settings }) => {
-    const result = runInstaller(['--workspace', workspace], { configHome });
+  withSandbox('install', ({ workspace, configHome, settings }) => {
+    const result = runInstaller(['install', '--workspace', workspace], { configHome });
     assert.equal(result.status, 0, result.output);
 
     const written = JSON.parse(readFileSync(settings, 'utf8'));
@@ -61,19 +31,19 @@ test('install writes hooks and the mcp server into an isolated settings.json', (
 });
 
 test('install is idempotent', () => {
-  withSandbox(({ workspace, configHome, settings }) => {
-    assert.equal(runInstaller(['--workspace', workspace], { configHome }).status, 0);
+  withSandbox('install', ({ workspace, configHome, settings }) => {
+    assert.equal(runInstaller(['install', '--workspace', workspace], { configHome }).status, 0);
     const first = readFileSync(settings, 'utf8');
 
-    const second = runInstaller(['--workspace', workspace], { configHome });
+    const second = runInstaller(['install', '--workspace', workspace], { configHome });
     assert.equal(second.status, 0, second.output);
     assert.equal(readFileSync(settings, 'utf8'), first);
   });
 });
 
 test('--dry-run writes nothing at all', () => {
-  withSandbox(({ workspace, configHome, settings }) => {
-    const result = runInstaller(['--workspace', workspace, '--dry-run'], { configHome });
+  withSandbox('install', ({ workspace, configHome, settings }) => {
+    const result = runInstaller(['install', '--workspace', workspace, '--dry-run'], { configHome });
     assert.equal(result.status, 0, result.output);
     assert.ok(!existsSync(settings), 'dry run must not create settings.json');
     assert.match(result.output, /Would merge|would install/i);
@@ -81,18 +51,18 @@ test('--dry-run writes nothing at all', () => {
 });
 
 test('--dry-run leaves an existing settings.json byte-identical', () => {
-  withSandbox(({ workspace, configHome, settings }) => {
-    runInstaller(['--workspace', workspace], { configHome });
+  withSandbox('install', ({ workspace, configHome, settings }) => {
+    runInstaller(['install', '--workspace', workspace], { configHome });
     const before = readFileSync(settings);
 
-    const result = runInstaller(['--workspace', workspace, '--dry-run'], { configHome });
+    const result = runInstaller(['install', '--workspace', workspace, '--dry-run'], { configHome });
     assert.equal(result.status, 0, result.output);
     assert.deepEqual(readFileSync(settings), before);
   });
 });
 
 test('install preserves the user’s own settings and hooks', () => {
-  withSandbox(({ workspace, configHome, settings }) => {
+  withSandbox('install', ({ workspace, configHome, settings }) => {
     mkdirSync(dirname(settings), { recursive: true });
     writeFileSync(
       settings,
@@ -104,7 +74,7 @@ test('install preserves the user’s own settings and hooks', () => {
       }),
     );
 
-    assert.equal(runInstaller(['--workspace', workspace], { configHome }).status, 0);
+    assert.equal(runInstaller(['install', '--workspace', workspace], { configHome }).status, 0);
 
     const written = JSON.parse(readFileSync(settings, 'utf8'));
     assert.equal(written.provider, 'meta', 'unrelated settings must survive');
@@ -115,11 +85,11 @@ test('install preserves the user’s own settings and hooks', () => {
 });
 
 test('install refuses to clobber a corrupt settings.json', () => {
-  withSandbox(({ workspace, configHome, settings }) => {
+  withSandbox('install', ({ workspace, configHome, settings }) => {
     mkdirSync(dirname(settings), { recursive: true });
     writeFileSync(settings, '{ not json');
 
-    const result = runInstaller(['--workspace', workspace], { configHome });
+    const result = runInstaller(['install', '--workspace', workspace], { configHome });
 
     // The property that matters is that it refuses and preserves the file, not
     // which check catches it first. In practice a corrupt settings.json also
@@ -133,8 +103,8 @@ test('install refuses to clobber a corrupt settings.json', () => {
 });
 
 test('escalation preflight reports the real permission-profile capability', () => {
-  withSandbox(({ workspace, configHome }) => {
-    const output = runInstaller(['--workspace', workspace, '--dry-run'], { configHome }).output;
+  withSandbox('install', ({ workspace, configHome }) => {
+    const output = runInstaller(['install', '--workspace', workspace, '--dry-run'], { configHome }).output;
     assert.match(output, /Escalation preflight:/);
     // muse 1.0.3 cannot create named permission profiles. If a future build can,
     // update this deliberately rather than letting the preflight quietly start
@@ -144,10 +114,10 @@ test('escalation preflight reports the real permission-profile capability', () =
 });
 
 test('installer names both costs of the external critic, not just one', () => {
-  withSandbox(({ workspace, configHome }) => {
+  withSandbox('install', ({ workspace, configHome }) => {
     // Collapse whitespace: the installer hard-wraps its prose, so line breaks land
     // in arbitrary places and must not decide whether this test passes.
-    const output = runInstaller(['--workspace', workspace, '--dry-run'], { configHome }).output.replace(
+    const output = runInstaller(['install', '--workspace', workspace, '--dry-run'], { configHome }).output.replace(
       /\s+/g,
       ' ',
     );
@@ -159,17 +129,46 @@ test('installer names both costs of the external critic, not just one', () => {
 });
 
 test('installer explains that plugins are off on this build', () => {
-  withSandbox(({ workspace, configHome }) => {
-    const output = runInstaller(['--workspace', workspace, '--dry-run'], { configHome }).output;
+  withSandbox('install', ({ workspace, configHome }) => {
+    const output = runInstaller(['install', '--workspace', workspace, '--dry-run'], { configHome }).output;
     assert.match(output, /plugins are not available/i);
     assert.match(output, /Delivery: muse settings/);
   });
 });
 
 test('installer rejects an unknown argument instead of ignoring it', () => {
-  withSandbox(({ configHome }) => {
-    const result = runInstaller(['--nonsense'], { configHome });
+  withSandbox('install', ({ configHome }) => {
+    const result = runInstaller(['install', '--nonsense'], { configHome });
     assert.notEqual(result.status, 0);
     assert.match(result.output, /unknown argument/);
+  });
+});
+
+test('bare flags with no verb are rejected and point at install', () => {
+  withSandbox('install', ({ configHome }) => {
+    const result = runInstaller(['--workspace', '/tmp/whatever'], { configHome });
+    assert.notEqual(result.status, 0);
+    assert.match(result.output, /a command is required/);
+    assert.match(result.output, /install/, 'must suggest install as the command to run');
+  });
+});
+
+test('an unknown verb is rejected', () => {
+  withSandbox('install', ({ configHome }) => {
+    const result = runInstaller(['frobnicate'], { configHome });
+    assert.notEqual(result.status, 0);
+    assert.match(result.output, /unknown command "frobnicate"/);
+    assert.match(result.output, /install, uninstall, doctor/);
+  });
+});
+
+test('--help prints the bin name and all three verbs, no verb required', () => {
+  withSandbox('install', ({ configHome }) => {
+    const result = runInstaller(['--help'], { configHome });
+    assert.equal(result.status, 0, result.output);
+    assert.match(result.output, /Usage: oh-my-musecode <install\|uninstall\|doctor> \[options\]/);
+    assert.match(result.output, /install\s+Copy the harness into a stable home/);
+    assert.match(result.output, /uninstall\s+Remove muse settings entries/);
+    assert.match(result.output, /doctor\s+Verify hooks resolve/);
   });
 });

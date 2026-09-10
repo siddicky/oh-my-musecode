@@ -37,15 +37,26 @@ to run next (`deep-interview` → "run `/ralplan`"; `ralplan` → "run `/ralph`"
 ## Install
 
 ```bash
-npm install
-npm run build
-node scripts/install.mjs --workspace <path> --dry-run   # preview, writes nothing
-node scripts/install.mjs --workspace <path>              # installs for real
+npx -y @siddicky/oh-my-musecode install
 ```
 
-`scripts/install.mjs` first probes the local `muse` build: `muse plugins
---help` (and every other `muse plugins` subcommand) answers "plugins are not
-available in this build" on muse 1.0.3-R2198.1, and registering
+This is the recommended, primary install path — it runs the published npm
+package's `install` verb.
+
+Under `npx`, the invoking package lives in a prunable npm cache directory
+(`~/.npm/_npx/<hash>/...`) that npm is free to clean up at any time. Before
+this was fixed, `settings.json`'s hook commands and the `omm-state` MCP
+server's `args` pointed straight at that cache path, so an install could
+silently break the next time npm pruned its cache. `install` now copies the
+harness (hooks, `dist/`, personas, and its resolved npm dependency closure)
+into a stable, versioned home under the muse config directory —
+`$XDG_CONFIG_HOME/muse/oh-my-musecode/<version>/`, or
+`~/.config/muse/oh-my-musecode/<version>/` when that's unset — and points
+`settings.json` there instead, so the install survives cache pruning.
+
+`install` first probes the local `muse` build: `muse plugins --help` (and
+every other `muse plugins` subcommand) answers "plugins are not available in
+this build" on muse 1.0.3-R2198.1, and registering
 `.agents/plugins/marketplace.json` anyway just yields
 `muse skills list --source plugin --json` → `{"skills":[],"diagnostics":[]}`
 — no discovery, no error, nothing delivered. **There is no `muse plugin
@@ -57,24 +68,51 @@ through three routes verified to work:
 | Piece | Route |
 |---|---|
 | Skills | `muse skills install <dir> --scope user --force` for each of the 7 skills, landing in `$CONFIG_DIR/skills/` |
-| Hooks | a `hooks` entry merged into `$CONFIG_DIR/muse/settings.json` |
-| MCP server | an `mcpServers` entry in the same `settings.json` |
+| Hooks | a `hooks` entry merged into `$CONFIG_DIR/muse/settings.json`, pointing at the stable home |
+| MCP server | an `mcpServers` entry in the same `settings.json`, pointing at the stable home |
 
 (`$CONFIG_DIR` is `~/.config/muse`, or `$XDG_CONFIG_HOME/muse` when that's
 set.) The installer also runs an escalation preflight against your local
 `muse` build and reports plainly what it finds (see External critic below),
 refusing to install if an enterprise policy forbids the only escalation
-route entirely.
+route entirely. `install` also accepts `--workspace <path>`,
+`--config-dir <path>`, and `--dry-run` (preview, writes nothing).
 
 The repo also ships a native `.muse-plugin/plugin.json` manifest — correct
 per muse's own documented plugin contract, and what a build with plugins
-*enabled* would load directly. `scripts/install.mjs` detects support at
-runtime (`pluginsSupported()`) and would use it automatically on such a
-build. On 1.0.3-R2198.1 it is inert; do not treat it as the working install
-path today. `.claude-plugin/` is kept alongside it only for Claude-family
+*enabled* would load directly. `install` detects support at runtime
+(`pluginsSupported()`) and would use it automatically on such a build. On
+1.0.3-R2198.1 it is inert; do not treat it as the working install path
+today. `.claude-plugin/` is kept alongside it only for Claude-family
 tooling compatibility.
 
-Confirm the skills installed:
+### Uninstalling
+
+```bash
+npx -y @siddicky/oh-my-musecode uninstall            # removes our hooks/mcp entries from settings.json, deletes the installed stable home
+npx -y @siddicky/oh-my-musecode uninstall --purge     # also removes the 7 installed skills
+```
+
+`uninstall` preserves every other value in `settings.json` exactly (the document
+is re-serialized as 2-space JSON, so exact original formatting/key order is not
+literally preserved, only the values).
+
+### Verifying
+
+```bash
+npx -y @siddicky/oh-my-musecode doctor
+```
+
+`doctor` is the documented way to verify an install. It re-reads the actual
+installed `settings.json`, confirms the 3 hooks (`SessionStart`, `Stop`,
+`UserPromptSubmit`) resolve on disk, does a real MCP client handshake
+against the `omm-state` server (not just a process-alive check), and
+confirms all 7 skills are visible via `muse skills list`. It prints one line
+per check and exits non-zero naming the failed check(s) if anything is
+wrong.
+
+As a secondary manual check, you can also confirm the skills installed
+directly:
 
 ```bash
 muse skills list --source user
@@ -164,6 +202,18 @@ time, and `ralph`/`ralplan` check it again at run time rather than silently
 falling back to the in-process critic.
 
 ## Development
+
+Installing from a local clone instead of the published package — for
+contributors iterating on the harness itself:
+
+```bash
+npm install
+npm run build
+node scripts/install.mjs install --workspace <path> --dry-run   # preview, writes nothing
+node scripts/install.mjs install --workspace <path>              # installs for real
+node scripts/install.mjs doctor --workspace <path>                # verify
+node scripts/install.mjs uninstall --purge                        # remove
+```
 
 ```bash
 npm test           # build + node --test over test/**/*.test.mjs

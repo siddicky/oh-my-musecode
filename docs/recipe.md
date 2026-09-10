@@ -73,7 +73,7 @@ hand-written `prd.json`.
 git clone <this repo> oh-my-musecode && cd oh-my-musecode
 npm install
 npm run build
-node scripts/install.mjs --workspace /path/to/oh-my-musecode --dry-run
+node scripts/install.mjs install --workspace /path/to/oh-my-musecode --dry-run
 ```
 
 `--dry-run` prints what the installer would do without touching disk. It
@@ -84,7 +84,7 @@ never load. Drop `--dry-run` to install for real. For this self-hosting run,
 the target workspace is this repo itself:
 
 ```bash
-node scripts/install.mjs --workspace .
+node scripts/install.mjs install --workspace .
 ```
 
 This runs three routes, each verified to work on 1.0.3-R2198.1:
