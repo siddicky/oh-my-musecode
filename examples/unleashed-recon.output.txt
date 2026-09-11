@@ -1,0 +1,49 @@
+=== unleashed PTC demo: repo reconnaissance ===
+config: maxPtcCalls=3 (deliberately tiny)
+
+--- the agent-authored script ---
+const repo = await tools.repoName({});
+const files = (await tools.listDir({ path: 'src/workflow' }))
+  .filter((f) => f.endsWith('.ts'));
+const sizes = [];
+for (const file of files) {
+  const text = await tools.readFile({ path: 'src/workflow/' + file });
+  sizes.push(file + ': ' + text.split('\n').length + ' lines');
+}
+globalThis.recon = { repo, sources: files.length };
+sizes.join('\n');
+
+--- attempt 1: guarded mode (5 listed calls, cap is 3) ---
+  [host] tools.repoName (static allowlist) -> "oh-my-musecode"
+  [host] tools.repoName (static allowlist) -> "oh-my-musecode"
+  [host] tools.repoName (static allowlist) -> "oh-my-musecode"
+result: ok=false
+error: Eval failed: {"name":"Error","message":"maxPtcCalls of 3 exceeded; no further tool invocations are performed.","stack":"    at <anonymous> (workflow-eval:3:58)\n"}
+host observed 3 tool call(s) before the cap tripped.
+closed world check: typeof tools.listDir -> undefined
+
+--- attempt 2: unleashed mode (same cap configured) ---
+  [host] tools.repoName (static allowlist) -> "oh-my-musecode"
+  [host] tools.listDir (resolved dynamically) -> 7 entries
+  [host] tools.readFile (resolved dynamically) -> 5575 chars
+  [host] tools.readFile (resolved dynamically) -> 827 chars
+  [host] tools.readFile (resolved dynamically) -> 24450 chars
+  [host] tools.readFile (resolved dynamically) -> 5003 chars
+  [host] tools.readFile (resolved dynamically) -> 1647 chars
+  [host] tools.readFile (resolved dynamically) -> 9471 chars
+  [host] tools.readFile (resolved dynamically) -> 3442 chars
+result: ok=true
+host observed 9 tool call(s); cap ignored.
+report:
+  host.ts: 182 lines
+  index.ts: 32 lines
+  interpreter.ts: 701 lines
+  store.ts: 170 lines
+  tool.ts: 41 lines
+  transform.ts: 245 lines
+  types.ts: 113 lines
+
+--- attempt 3: session persistence ---
+recall: oh-my-musecode has 7 workflow sources; longest is shown above.
+
+=== done ===
