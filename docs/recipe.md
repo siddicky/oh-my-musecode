@@ -12,7 +12,7 @@
 
 oh-my-musecode ports oh-my-claudecode's Tier-0 delivery pipeline —
 `deep-interview → deep-dive/trace → ralplan → ralph`, plus `team` and
-`cancel` — onto the `muse` CLI. It ships seven skills and ten personas whose
+`cancel` — onto the `muse` CLI. It ships eight skills and ten personas whose
 `SOUL.md` text and tool allowlists are pulled in on demand via the bundled
 `omm-state` MCP server's `persona_list`/`persona_render` tools, ready to
 interpolate into a `subagent_spawn` objective. Everything is wired together
@@ -31,7 +31,7 @@ and step 1 below for exactly which route runs today.
 This recipe walks the repo's own acceptance run: installing it, then driving
 `/deep-interview → /ralplan --critic codex → /ralph --critic codex` against
 this same repository. The run is self-hosting — it builds one of the repo's
-own seven skills — so a failure here is a real defect, not a toy demo. What
+own eight skills — so a failure here is a real defect, not a toy demo. What
 is actually verified as of this writing, and what is not, is stated plainly
 in the Proof Point section below — the full pipeline run has not yet been
 executed end to end in a muse session.
@@ -108,8 +108,8 @@ prints; the rest of this walkthrough depends on it.
 muse skills list --source user
 ```
 
-All seven skills (`deep-interview`, `deep-dive`, `trace`, `ralplan`,
-`ralph`, `team`, `cancel`) should appear with `scope: "user"`. Unlike a
+All eight skills (`deep-interview`, `deep-dive`, `trace`, `ralplan`,
+`ralph`, `team`, `cancel`, `workflow`) should appear with `scope: "user"`. Unlike a
 plugin-loaded skill, a user-scoped skill installed this way does not need
 `--trust-workspace` to be visible — but the hooks and MCP server delivered
 through `settings.json` still only take effect inside a real `muse` session,
@@ -126,7 +126,7 @@ effect of an earlier `--yolo`.)
 
 ### 3. `/deep-interview`
 
-Inside the trusted session, pick one of the plugin's own seven skills that has
+Inside the trusted session, pick one of the plugin's own eight skills that has
 room for a real design decision (for example, tightening the `team` skill's
 worktree-slot-queueing behavior) and run:
 
@@ -190,10 +190,10 @@ perform, it does not claim the run has happened.
 
 1. `muse skills validate <path>` reports `valid`, with no
    `unsupported-skill-field` diagnostics and an empty
-   `compatibility.unknown_fields`, for each of the seven skill directories
+   `compatibility.unknown_fields`, for each of the eight skill directories
    under `skills/` (`npm run verify:skills` checks this automatically).
-2. `muse skills install --scope user --force` installs all seven skills, and
-   `muse skills list --source user` lists all seven with `scope: "user"`.
+2. `muse skills install --scope user --force` installs all eight skills, and
+   `muse skills list --source user` lists all eight with `scope: "user"`.
 3. `npm test` passes: 84 tests covering routing, state-root protection,
    persona manifest, MCP state server, and installer preflight.
 4. `muse --trust-workspace` (installed via `settings.json`, not a plugin
