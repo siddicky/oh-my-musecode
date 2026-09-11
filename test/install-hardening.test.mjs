@@ -90,6 +90,7 @@ test('a packed-and-extracted tarball (no node_modules yet) can still run install
       execFileSync('npm', ['pack', '--pack-destination', packDir, '--json'], {
         cwd: ROOT,
         encoding: 'utf8',
+        env: { ...process.env, npm_config_dry_run: 'false' },
       }),
     );
     const tgzName = packResult[0].filename;
