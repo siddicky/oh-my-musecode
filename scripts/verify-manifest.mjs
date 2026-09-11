@@ -15,7 +15,7 @@
  * never activates.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -198,6 +198,35 @@ if (claude?.capabilities) {
   for (const key of Object.keys(claude.capabilities)) {
     if (REJECTED_CAPABILITIES.has(key)) {
       problems.push(`.claude-plugin/plugin.json: capability \`${key}\` is rejected by muse`);
+    }
+  }
+}
+
+// --------------------------------- manifest/skill-tree completeness
+//
+// Both manifests enumerate the skill corpus; a skill directory without a
+// declaration loads nowhere on that path. The workflow skill shipped exactly
+// this way, so drift fails the gate instead of failing silently.
+const skillDirs = readdirSync(join(ROOT, 'skills'), { withFileTypes: true })
+  .filter((entry) => entry.isDirectory() && existsSync(join(ROOT, 'skills', entry.name, 'SKILL.md')))
+  .map((entry) => entry.name)
+  .sort();
+if (native) {
+  const declaredIds = new Set((native.capabilities?.skills ?? []).map((skill) => skill.id));
+  for (const dir of skillDirs) {
+    if (!declaredIds.has(dir)) {
+      problems.push(`plugin.json: skill "${dir}" exists under skills/ but is not declared`);
+    }
+  }
+}
+if (claude?.capabilities) {
+  const claudeSkills = Array.isArray(claude.capabilities.skills) ? claude.capabilities.skills : [];
+  const normalized = new Set(
+    claudeSkills.filter((entry) => typeof entry === 'string').map((entry) => entry.replace(/^\.\//, '')),
+  );
+  for (const dir of skillDirs) {
+    if (!normalized.has(`skills/${dir}`)) {
+      problems.push(`.claude-plugin/plugin.json: skill "${dir}" exists under skills/ but is not listed`);
     }
   }
 }

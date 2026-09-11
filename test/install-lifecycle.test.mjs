@@ -160,7 +160,7 @@ test('uninstall removes our settings entries and the stable home, but not a fore
   });
 });
 
-test('uninstall --purge removes the 7 installed skills', () => {
+test('uninstall --purge removes all installed skills', () => {
   withSandbox('lifecycle', ({ workspace, configHome }) => {
     assert.equal(runInstaller(['install', '--workspace', workspace], { configHome }).status, 0);
 
