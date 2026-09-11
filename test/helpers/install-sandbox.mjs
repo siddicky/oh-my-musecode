@@ -11,13 +11,28 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const INSTALLER = join(ROOT, 'scripts', 'install.mjs');
+const FAKE_MUSE = join(ROOT, 'test', 'helpers', 'fake-muse.mjs');
+
+/** Environment for a deterministic Muse CLI backed by the isolated config. */
+export function museTestEnv(configHome) {
+  const binDir = join(configHome, 'test-bin');
+  const launcher = join(binDir, 'muse');
+  mkdirSync(binDir, { recursive: true });
+  writeFileSync(launcher, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(FAKE_MUSE)} "$@"\n`);
+  chmodSync(launcher, 0o755);
+  return {
+    ...process.env,
+    XDG_CONFIG_HOME: configHome,
+    PATH: `${binDir}:${process.env.PATH ?? ''}`,
+  };
+}
 
 /**
  * Runs the installer with a mandatory isolated config dir.
@@ -28,7 +43,7 @@ export function runInstaller(args, { configHome, env = {} } = {}) {
   if (!configHome) throw new Error('runInstaller requires an isolated configHome');
   const result = spawnSync('node', [INSTALLER, ...args], {
     encoding: 'utf8',
-    env: { ...process.env, XDG_CONFIG_HOME: configHome, ...env },
+    env: { ...museTestEnv(configHome), ...env },
   });
   return { ...result, output: `${result.stdout ?? ''}${result.stderr ?? ''}` };
 }
@@ -42,7 +57,12 @@ export function withSandbox(prefix, fn) {
   const workspace = mkdtempSync(join(tmpdir(), `omm-${prefix}-ws-`));
   const configHome = mkdtempSync(join(tmpdir(), `omm-${prefix}-cfg-`));
   try {
-    return fn({ workspace, configHome, settings: join(configHome, 'muse', 'settings.json') });
+    return fn({
+      workspace,
+      configHome,
+      settings: join(configHome, 'muse', 'settings.json'),
+      env: museTestEnv(configHome),
+    });
   } finally {
     rmSync(workspace, { recursive: true, force: true });
     rmSync(configHome, { recursive: true, force: true });

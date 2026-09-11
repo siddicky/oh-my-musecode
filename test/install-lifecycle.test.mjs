@@ -17,7 +17,7 @@ import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
-import { ROOT, runInstaller, withSandbox } from './helpers/install-sandbox.mjs';
+import { museTestEnv, ROOT, runInstaller, withSandbox } from './helpers/install-sandbox.mjs';
 
 const PKG_VERSION = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version;
 const SKILL_IDS = readdirSync(join(ROOT, 'skills'), { withFileTypes: true })
@@ -29,7 +29,7 @@ const SKILL_IDS = readdirSync(join(ROOT, 'skills'), { withFileTypes: true })
 function listUserSkillIds(configHome) {
   const result = spawnSync('muse', ['skills', 'list', '--source', 'user', '--json'], {
     encoding: 'utf8',
-    env: { ...process.env, XDG_CONFIG_HOME: configHome },
+    env: museTestEnv(configHome),
   });
   assert.equal(result.status, 0, `muse skills list failed: ${result.stdout}${result.stderr}`);
   const parsed = JSON.parse(result.stdout);

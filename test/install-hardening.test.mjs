@@ -95,7 +95,7 @@ test('a packed-and-extracted tarball (no node_modules yet) can still run install
     execFileSync('tar', ['-xzf', join(packDir, tgzName), '-C', extractDir]);
     const pkgDir = join(extractDir, 'package');
 
-    withSandbox('harden', ({ workspace, configHome }) => {
+    withSandbox('harden', ({ workspace, configHome, env }) => {
       const helpResult = spawnSync('node', [join(pkgDir, 'scripts', 'install.mjs'), '--help'], {
         encoding: 'utf8',
       });
@@ -105,7 +105,7 @@ test('a packed-and-extracted tarball (no node_modules yet) can still run install
       const dryRunResult = spawnSync(
         'node',
         [join(pkgDir, 'scripts', 'install.mjs'), 'install', '--workspace', workspace, '--dry-run'],
-        { encoding: 'utf8', env: { ...process.env, XDG_CONFIG_HOME: configHome } },
+        { encoding: 'utf8', env },
       );
       assert.equal(
         dryRunResult.status,
