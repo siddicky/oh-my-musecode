@@ -2,12 +2,13 @@
 
 An OMC-shaped delivery harness for [Meta Muse Code](https://dev.meta.ai/docs/cookbook#building-with-muse-code)
 (the `muse` CLI): a gated pipeline from a vague request to verified working
-code. It ships a native muse plugin manifest, but on muse 1.0.3 the plugins
-subsystem itself is disabled, so it installs today through `muse skills
-install` plus a `settings.json` merge instead — see Install below.
+code. It ships a native Muse plugin manifest, but Muse 1.1.1 reports that
+plugins are unavailable in this build. The npm installer handles that limitation
+by using `muse skills install` plus a `settings.json` merge instead. See Install
+below.
 
 It ports oh-my-claudecode's Tier-0 pipeline — `deep-interview → deep-dive/trace
-→ ralplan → ralph`, plus `team` and `cancel` — onto `muse` 1.0.3, respecting
+→ ralplan → ralph`, plus `team` and `cancel` — onto `muse`, respecting
 Muse's approval/sandbox/trust/audit model instead of working around it. See
 [`docs/recipe.md`](docs/recipe.md) for the full walkthrough and acceptance
 run.
@@ -34,14 +35,34 @@ Sequencing between stages works the same way: no `SKILL.md` chains
 automatically into the next one — the skill's body tells you, in prose, what
 to run next (`deep-interview` → "run `/ralplan`"; `ralplan` → "run `/ralph`").
 
-## Install
+## Install from npm
+
+You need Node.js 20 or newer and the `muse` command on your `PATH`. Run:
 
 ```bash
 npx -y @siddicky/oh-my-musecode install
 ```
 
-This is the recommended, primary install path — it runs the published npm
-package's `install` verb.
+This is the supported npm installation path. If the installer prints
+`plugins are not available in this build`, that is a Muse build limitation,
+not an installation failure. There is no local setting that enables the plugin
+subsystem. The installer detects this response and installs the seven skills at
+user scope, then registers the hooks and MCP server directly in Muse settings.
+
+Close and reopen Muse after installation so it reloads the settings. Then check
+the complete installation and confirm that Muse can see the skills:
+
+```bash
+npx -y @siddicky/oh-my-musecode doctor
+muse skills list --source user
+```
+
+`doctor` must end with `doctor: healthy`. The skill list must include
+`deep-interview`, `deep-dive`, `trace`, `ralplan`, `ralph`, `team`, and
+`cancel`. The `--source user` filter is intentional because the fallback
+installer installs these skills into Muse's personal skill root. Merely cloning
+this repository does not register its top-level `skills/` directory as a Muse
+project skill source.
 
 Under `npx`, the invoking package lives in a prunable npm cache directory
 (`~/.npm/_npx/<hash>/...`) that npm is free to clean up at any time. Before
@@ -54,15 +75,14 @@ into a stable, versioned home under the muse config directory —
 `~/.config/muse/oh-my-musecode/<version>/` when that's unset — and points
 `settings.json` there instead, so the install survives cache pruning.
 
-`install` first probes the local `muse` build: `muse plugins --help` (and
-every other `muse plugins` subcommand) answers "plugins are not available in
-this build" on muse 1.0.3-R2198.1, and registering
+`install` first probes the local `muse` build: `muse plugins --help` answers
+"plugins are not available in this build" on Muse 1.1.1-R2514.1, and registering
 `.agents/plugins/marketplace.json` anyway just yields
 `muse skills list --source plugin --json` → `{"skills":[],"diagnostics":[]}`
 — no discovery, no error, nothing delivered. **There is no `muse plugin
 install` command on this build either.**
 
-So on 1.0.3 the installer skips the plugin route entirely and delivers
+When plugins are unavailable, the installer skips the plugin route and delivers
 through three routes verified to work:
 
 | Piece | Route |
@@ -81,10 +101,10 @@ route entirely. `install` also accepts `--workspace <path>`,
 The repo also ships a native `.muse-plugin/plugin.json` manifest — correct
 per muse's own documented plugin contract, and what a build with plugins
 *enabled* would load directly. `install` detects support at runtime
-(`pluginsSupported()`) and would use it automatically on such a build. On
-1.0.3-R2198.1 it is inert; do not treat it as the working install path
-today. `.claude-plugin/` is kept alongside it only for Claude-family
-tooling compatibility.
+(`pluginsSupported()`) and would use it automatically on such a build. On Muse
+1.1.1-R2514.1 it is inert; do not treat it as the working install path.
+`.claude-plugin/` is kept alongside it only for Claude-family tooling
+compatibility.
 
 ### Uninstalling
 
