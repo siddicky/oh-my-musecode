@@ -152,6 +152,81 @@ test('dispatches emit lifecycle events; cancel terminates, restart re-runs', asy
   }
 });
 
+test('cancel aborts the signal handed to the dispatcher', async () => {
+  const host = new WorkflowHost();
+  let seen;
+  const dispatcher = (dispatch) => {
+    seen = dispatch.signal;
+    return new Promise(() => {});
+  };
+  const pending = host.run(
+    { description: 'work', subagentType: 'worker', model: 'm', effort: 'e' },
+    dispatcher,
+  );
+  const started = await waitFor(host.events, (e) => e.type === 'started');
+  assert.ok(seen instanceof AbortSignal, 'dispatcher must receive an AbortSignal');
+  assert.equal(seen.aborted, false);
+  assert.ok(host.cancel(started.runId), 'cancel should hit the running dispatch');
+  await assert.rejects(pending, /cancelled/);
+  assert.equal(seen.aborted, true);
+  assert.equal(seen.reason, 'cancelled');
+});
+
+test('restart aborts the attempt signal and hands the next attempt a fresh one', async () => {
+  const host = new WorkflowHost();
+  const gate = { release: null };
+  const blocker = () => new Promise((resolve) => { gate.release = resolve; });
+  const signals = [];
+  const dispatcher = async (dispatch) => {
+    signals.push(dispatch.signal);
+    if (dispatch.attempt === 1) {
+      await blocker();
+      return 'first';
+    }
+    return 'second';
+  };
+  const pending = host.run(
+    { description: 'work', subagentType: 'worker', model: 'm', effort: 'e' },
+    dispatcher,
+  );
+  const started = await waitFor(host.events, (e) => e.type === 'started');
+  assert.ok(host.restart(started.runId), 'restart should hit the running dispatch');
+  await waitFor(host.events, (e) => e.type === 'started' && e.attempt === 2);
+  gate.release();
+  assert.equal(await pending, 'second');
+  assert.equal(signals.length, 2);
+  assert.equal(signals[0].aborted, true);
+  assert.equal(signals[0].reason, 'restart');
+  assert.equal(signals[1].aborted, false);
+});
+
+test('a synchronously throwing dispatcher rejects the run with its error', async () => {
+  const host = new WorkflowHost();
+  const dispatcher = () => {
+    throw new Error('sync boom');
+  };
+  await assert.rejects(
+    host.run({ description: 'work', subagentType: 'worker', model: 'm', effort: 'e' }, dispatcher),
+    /sync boom/,
+  );
+  assert.deepEqual(
+    host.events.map((e) => e.type),
+    ['started'],
+  );
+});
+
+test('a throwing event listener does not break the dispatch lifecycle', async () => {
+  const host = new WorkflowHost(() => {
+    throw new Error('listener boom');
+  });
+  const output = await host.run(
+    { description: 'work', subagentType: 'worker', model: 'm', effort: 'e' },
+    async () => 'done',
+  );
+  assert.equal(output, 'done');
+  assert.ok(host.events.some((e) => e.type === 'completed'), 'expected a completed event');
+});
+
 test('a host cancel terminates the running dispatch', async () => {
   const host = new WorkflowHost();
   const dispatcher = () => new Promise(() => {});

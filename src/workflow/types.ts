@@ -33,6 +33,13 @@ export interface TaskCall {
 export interface SubagentDispatch extends TaskCall {
   runId: string;
   attempt: number;
+  /**
+   * Aborts when the host cancels (reason `'cancelled'`) or restarts (reason
+   * `'restart'`) this attempt. A fresh signal is issued per attempt. The host
+   * ignores the late result either way, but dispatchers should stop work on
+   * abort to avoid zombie side effects.
+   */
+  signal: AbortSignal;
 }
 
 /** Host-side subagent runner. Returns the subagent's output text. */

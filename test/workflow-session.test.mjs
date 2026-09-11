@@ -41,6 +41,32 @@ test('an infinite loop is terminated by executionTimeoutMs', async () => {
   }
 });
 
+test('a timeout with an in-flight tool call drops cleanly without aborting', async () => {
+  const interpreter = new WorkflowInterpreter({
+    config: {
+      executionTimeoutMs: 100,
+      ptc: {
+        slow: async () => {
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          return 'late';
+        },
+      },
+    },
+  });
+  try {
+    const response = await interpreter.evaluate('us002-timeout-inflight', 'await tools.slow({});');
+    assert.equal(response.ok, false);
+    assert.match(response.error ?? '', /timed out/);
+    // Let the late continuation fire; it must safely skip the dropped session.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    const next = await interpreter.evaluate('us002-timeout-inflight', '40 + 2;');
+    assert.equal(next.ok, true);
+    assert.equal(next.result, 42);
+  } finally {
+    interpreter.disposeAll();
+  }
+});
+
 test('allocating beyond memoryLimitBytes fails', async () => {
   const interpreter = new WorkflowInterpreter({ config: { memoryLimitBytes: 1024 * 1024 } });
   try {
@@ -78,6 +104,60 @@ test('quickjs ships as pure WASM with no native build step', () => {
       undefined,
       `package.json must declare no ${script} script that compiles quickjs`,
     );
+  }
+});
+
+test('concurrent evaluates on one session stay isolated', async () => {
+  const interpreter = new WorkflowInterpreter({
+    config: {
+      ptc: {
+        slow: async (args) => {
+          await new Promise((resolve) => setTimeout(resolve, Number(args.ms ?? 0)));
+          return 'done';
+        },
+      },
+    },
+  });
+  try {
+    // Warm up so both contenders share one live session instead of each
+    // creating its own.
+    await interpreter.evaluate('us002-race', '1;');
+    const [first, second] = await Promise.all([
+      interpreter.evaluate(
+        'us002-race',
+        `await tools.slow({ ms: 60 }); console.log('from-first'); 'first';`,
+      ),
+      interpreter.evaluate('us002-race', `console.log('from-second'); 'second';`),
+    ]);
+    assert.equal(first.ok, true);
+    assert.equal(second.ok, true);
+    assert.equal(first.result, 'first');
+    assert.equal(second.result, 'second');
+    assert.deepEqual(first.console, ['from-first']);
+    assert.deepEqual(second.console, ['from-second']);
+  } finally {
+    interpreter.disposeAll();
+  }
+});
+
+test('a failed module load is retried instead of cached forever', async () => {
+  const { getQuickJS } = await import('quickjs-emscripten');
+  let attempts = 0;
+  const interpreter = new WorkflowInterpreter({
+    moduleLoader: async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error('wasm unavailable');
+      return getQuickJS();
+    },
+  });
+  try {
+    await assert.rejects(interpreter.evaluate('us002-retry', '40 + 2;'), /wasm unavailable/);
+    const response = await interpreter.evaluate('us002-retry', '40 + 2;');
+    assert.equal(response.ok, true);
+    assert.equal(response.result, 42);
+    assert.equal(attempts, 2);
+  } finally {
+    interpreter.disposeAll();
   }
 });
 

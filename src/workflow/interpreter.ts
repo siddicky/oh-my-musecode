@@ -34,11 +34,23 @@ export interface InterpreterOptions {
   subagentMap?: SubagentMap;
   dispatcher?: SubagentDispatcher;
   host?: WorkflowHost;
+  /** Overrides WASM module loading; defaults to getQuickJS(). A test seam for load failure. */
+  moduleLoader?: () => Promise<QuickJSWASMModule>;
 }
+
+type PendingPromise = ReturnType<QuickJSContext['newPromise']>;
 
 interface SessionState {
   runtime: QuickJSRuntime;
   context: QuickJSContext;
+  /** Deferreds awaiting host work; disposed before teardown so no live handles survive. */
+  inflight: Set<PendingPromise>;
+}
+
+/** Identifies the session a host-bridge continuation belongs to. */
+interface BridgeScope {
+  session: SessionState;
+  sessionId: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -64,14 +76,17 @@ export class WorkflowInterpreter {
   private readonly subagentMap: SubagentMap;
   private readonly dispatcher: SubagentDispatcher | undefined;
   private readonly host: WorkflowHost;
+  private readonly moduleLoader: () => Promise<QuickJSWASMModule>;
   private modulePromise: Promise<QuickJSWASMModule> | undefined;
   private readonly sessions = new Map<string, SessionState>();
+  private readonly sessionLocks = new Map<string, Promise<void>>();
 
   constructor(options: InterpreterOptions = {}) {
     this.siteConfig = { ...DEFAULT_WORKFLOW_CONFIG, ...options.config };
     this.subagentMap = options.subagentMap ?? {};
     this.dispatcher = options.dispatcher;
     this.host = options.host ?? new WorkflowHost();
+    this.moduleLoader = options.moduleLoader ?? getQuickJS;
   }
 
   get config(): WorkflowConfig {
@@ -87,11 +102,38 @@ export class WorkflowInterpreter {
    * use. Per-call overrides win over the site config. Nothing runs without
    * this explicit call: construction performs no evaluation and dispatches
    * no subagents.
+   *
+   * Concurrent calls on the same session are serialized: one QuickJS context
+   * serves a session, so parallel evals would share globals, deadlines, and
+   * handle cleanup. Different sessions still run in parallel.
    */
   async evaluate(
     sessionId: string,
     code: string,
     overrides: Partial<WorkflowConfig> = {},
+  ): Promise<ToolResponse> {
+    const prior = this.sessionLocks.get(sessionId) ?? Promise.resolve();
+    let release: () => void = () => {};
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const chained = prior.catch(() => undefined).then(() => current);
+    this.sessionLocks.set(sessionId, chained);
+    await prior.catch(() => undefined);
+    try {
+      return await this.evaluateLocked(sessionId, code, overrides);
+    } finally {
+      release();
+      if (this.sessionLocks.get(sessionId) === chained) {
+        this.sessionLocks.delete(sessionId);
+      }
+    }
+  }
+
+  private async evaluateLocked(
+    sessionId: string,
+    code: string,
+    overrides: Partial<WorkflowConfig>,
   ): Promise<ToolResponse> {
     const config: WorkflowConfig = { ...this.siteConfig, ...overrides };
     const session = await this.ensureSession(sessionId);
@@ -108,17 +150,19 @@ export class WorkflowInterpreter {
       return handle;
     };
     let ptcCalls = 0;
+    let timedOut = false;
 
     try {
+      const scope: BridgeScope = { session, sessionId };
       this.defineConsole(context, track, config.captureConsole, consoleLines);
-      this.defineTools(context, track, config, () => {
+      this.defineTools(context, track, config, scope, () => {
         if (config.maxPtcCalls !== null && ++ptcCalls > config.maxPtcCalls) {
           throw new Error(
             `maxPtcCalls of ${config.maxPtcCalls} exceeded; no further tool invocations are performed.`,
           );
         }
       });
-      this.defineTask(context, track, config);
+      this.defineTask(context, track, config, scope);
 
       // The transform hoists declarations, auto-returns a trailing
       // expression, and wraps everything in an async IIFE so top-level
@@ -134,7 +178,11 @@ export class WorkflowInterpreter {
       try {
         const settled = await this.pumpToSettled(runtime, context, resultHandle, deadline);
         if (settled.status === 'timeout') {
-          this.dropSession(sessionId);
+          // Flagged, not dropped here: every held handle is disposed in the
+          // finally blocks below, and the runtime is freed only once no
+          // native references survive. Freeing it earlier trips a QuickJS
+          // gc-list assertion when bridged promises are still in flight.
+          timedOut = true;
           return this.respond(
             undefined,
             consoleLines,
@@ -152,7 +200,11 @@ export class WorkflowInterpreter {
         }
         return this.respond(settled.value, consoleLines, config);
       } finally {
-        resultHandle.dispose();
+        try {
+          resultHandle.dispose();
+        } catch {
+          // The session may already be dropped after a timeout.
+        }
       }
     } finally {
       runtime.setInterruptHandler(() => false);
@@ -163,6 +215,7 @@ export class WorkflowInterpreter {
           // Handles owned by still-pending VM objects dispose with their owner.
         }
       }
+      if (timedOut) this.dropSession(sessionId);
     }
   }
 
@@ -170,8 +223,21 @@ export class WorkflowInterpreter {
     const session = this.sessions.get(sessionId);
     if (!session) return;
     this.sessions.delete(sessionId);
-    session.context.dispose();
-    session.runtime.dispose();
+    // Unsettled deferreds hold live VM objects; dispose them before the
+    // context so runtime teardown finds no surviving handles.
+    for (const deferred of session.inflight) {
+      try {
+        deferred.dispose();
+      } catch {
+        // Best effort; teardown must proceed to free the runtime.
+      }
+    }
+    session.inflight.clear();
+    try {
+      session.context.dispose();
+    } finally {
+      session.runtime.dispose();
+    }
   }
 
   disposeAll(): void {
@@ -183,15 +249,36 @@ export class WorkflowInterpreter {
   private async ensureSession(sessionId: string): Promise<SessionState> {
     const existing = this.sessions.get(sessionId);
     if (existing) return existing;
-    if (!this.modulePromise) this.modulePromise = getQuickJS();
-    const module = await this.modulePromise;
+    if (!this.modulePromise) this.modulePromise = this.moduleLoader();
+    let module: QuickJSWASMModule;
+    try {
+      module = await this.modulePromise;
+    } catch (error: unknown) {
+      // A failed load must not poison later sessions; clear it so the next
+      // call retries instead of replaying the same rejection.
+      this.modulePromise = undefined;
+      throw error;
+    }
     const runtime = module.newRuntime();
-    const context = runtime.newContext();
+    let context: QuickJSContext;
+    try {
+      context = runtime.newContext();
+    } catch (error: unknown) {
+      runtime.dispose();
+      throw error;
+    }
     // No wall-clock in the sandbox unless bridged through PTC.
-    context.evalCode('delete globalThis.Date;');
-    const session: SessionState = { runtime, context };
+    this.evalForEffect(context, 'delete globalThis.Date;');
+    const session: SessionState = { runtime, context, inflight: new Set() };
     this.sessions.set(sessionId, session);
     return session;
+  }
+
+  /** Runs code for its side effects, disposing the result handles. */
+  private evalForEffect(context: QuickJSContext, code: string): void {
+    const scrubbed = context.evalCode(code);
+    if (scrubbed.error) scrubbed.error.dispose();
+    else scrubbed.value.dispose();
   }
 
   private dropSession(sessionId: string): void {
@@ -228,6 +315,7 @@ export class WorkflowInterpreter {
     context: QuickJSContext,
     track: (handle: QuickJSHandle) => QuickJSHandle,
     config: WorkflowConfig,
+    scope: BridgeScope,
     beforeCall: () => void,
   ): void {
     const allowlist: PtcAllowlist = config.ptc;
@@ -241,20 +329,29 @@ export class WorkflowInterpreter {
           const args = isRecord(rawArgs) ? rawArgs : {};
           const runtime = (context.runtime ?? undefined) as QuickJSRuntime | undefined;
           const deferred = context.newPromise();
+          scope.session.inflight.add(deferred);
           Promise.resolve()
             .then(() => tool(args))
             .then(
               (native) => {
-                const valueHandle = this.fromNative(context, native);
-                deferred.resolve(valueHandle);
-                valueHandle.dispose();
-                runtime?.executePendingJobs();
+                this.settleBridge(scope, runtime, deferred, () => {
+                  const valueHandle = this.fromNative(context, native);
+                  try {
+                    deferred.resolve(valueHandle);
+                  } finally {
+                    valueHandle.dispose();
+                  }
+                });
               },
               (error: unknown) => {
-                const messageHandle = context.newString(errorMessage(error));
-                deferred.reject(messageHandle);
-                messageHandle.dispose();
-                runtime?.executePendingJobs();
+                this.settleBridge(scope, runtime, deferred, () => {
+                  const messageHandle = context.newString(errorMessage(error));
+                  try {
+                    deferred.reject(messageHandle);
+                  } finally {
+                    messageHandle.dispose();
+                  }
+                });
               },
             );
           return deferred.handle;
@@ -265,13 +362,59 @@ export class WorkflowInterpreter {
     context.setProp(context.global, 'tools', toolsObj);
   }
 
+  /**
+   * Settles one host-bridged promise. Continuations for a dropped session are
+   * skipped outright, and a bridge failure rejects the deferred instead of
+   * leaving it unsettled: an unsettled deferred keeps VM objects alive and
+   * aborts the process at runtime teardown.
+   */
+  private settleBridge(
+    scope: BridgeScope,
+    runtime: QuickJSRuntime | undefined,
+    deferred: PendingPromise,
+    settle: () => void,
+  ): void {
+    try {
+      if (this.sessions.get(scope.sessionId) !== scope.session) return;
+      try {
+        settle();
+      } catch (error: unknown) {
+        try {
+          const messageHandle = scope.session.context.newString(errorMessage(error));
+          try {
+            deferred.reject(messageHandle);
+          } finally {
+            messageHandle.dispose();
+          }
+        } catch {
+          // The context is unusable; dispose the deferred so teardown finds
+          // no surviving handles. The eval then degrades to a timeout.
+          try {
+            deferred.dispose();
+          } catch {
+            // Already torn down.
+          }
+        }
+      }
+      try {
+        runtime?.executePendingJobs();
+      } catch {
+        // Jobs can fail when the runtime was interrupted mid-flight; the pump
+        // loop reports the terminal state on its next pass.
+      }
+    } finally {
+      scope.session.inflight.delete(deferred);
+    }
+  }
+
   private defineTask(
     context: QuickJSContext,
     track: (handle: QuickJSHandle) => QuickJSHandle,
     config: WorkflowConfig,
+    scope: BridgeScope,
   ): void {
     if (!config.subagents) {
-      context.evalCode('delete globalThis.task;');
+      this.evalForEffect(context, 'delete globalThis.task;');
       return;
     }
     const dispatcher = this.dispatcher;
@@ -312,21 +455,30 @@ export class WorkflowInterpreter {
         }
         const runtime = (context.runtime ?? undefined) as QuickJSRuntime | undefined;
         const deferred = context.newPromise();
+        scope.session.inflight.add(deferred);
         const request = { description, subagentType, model, effort };
         Promise.resolve()
           .then(() => host.run(request, dispatcher))
           .then(
             (output) => {
-              const valueHandle = context.newString(output);
-              deferred.resolve(valueHandle);
-              valueHandle.dispose();
-              runtime?.executePendingJobs();
+              this.settleBridge(scope, runtime, deferred, () => {
+                const valueHandle = context.newString(output);
+                try {
+                  deferred.resolve(valueHandle);
+                } finally {
+                  valueHandle.dispose();
+                }
+              });
             },
             (error: unknown) => {
-              const messageHandle = context.newString(errorMessage(error));
-              deferred.reject(messageHandle);
-              messageHandle.dispose();
-              runtime?.executePendingJobs();
+              this.settleBridge(scope, runtime, deferred, () => {
+                const messageHandle = context.newString(errorMessage(error));
+                try {
+                  deferred.reject(messageHandle);
+                } finally {
+                  messageHandle.dispose();
+                }
+              });
             },
           );
         return deferred.handle;
@@ -337,7 +489,12 @@ export class WorkflowInterpreter {
 
   private fromNative(context: QuickJSContext, native: unknown): QuickJSHandle {
     if (native === undefined) return context.undefined;
-    const encoded = JSON.stringify(native);
+    let encoded: string | undefined;
+    try {
+      encoded = JSON.stringify(native);
+    } catch (error: unknown) {
+      throw new Error(`Cannot bridge host value into the sandbox: ${errorMessage(error)}`);
+    }
     if (encoded === undefined) return context.undefined;
     const parsed = context.evalCode(`(${encoded})`, 'workflow-value');
     if (parsed.error) {
@@ -362,19 +519,52 @@ export class WorkflowInterpreter {
       runtime.executePendingJobs();
       const state = context.getPromiseState(handle);
       if (state.type === 'fulfilled') {
-        const value = context.dump(state.value);
-        // A non-promise result reports the original handle (notAPromise), so
-        // only a genuine promise result owns a handle that needs disposing.
-        if (!state.notAPromise) state.value.dispose();
-        return { status: 'fulfilled', value };
+        try {
+          return { status: 'fulfilled', value: context.dump(state.value) };
+        } catch (error: unknown) {
+          return { status: 'rejected', message: errorMessage(error) };
+        } finally {
+          // A non-promise result reports the original handle (notAPromise),
+          // so only a genuine promise result owns a handle that needs
+          // disposing.
+          if (!state.notAPromise) {
+            try {
+              state.value.dispose();
+            } catch {
+              // Best effort; the session may already be torn down.
+            }
+          }
+        }
       }
       if (state.type === 'rejected') {
-        const message = formatConsoleArg(context.dump(state.error));
-        state.error.dispose();
-        return { status: 'rejected', message };
+        try {
+          return { status: 'rejected', message: formatConsoleArg(context.dump(state.error)) };
+        } catch (error: unknown) {
+          return { status: 'rejected', message: errorMessage(error) };
+        } finally {
+          try {
+            state.error.dispose();
+          } catch {
+            // Best effort; the session may already be torn down.
+          }
+        }
       }
       if (Date.now() > deadline) return { status: 'timeout' };
       await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  }
+
+  private resultText(result: unknown): string {
+    if (typeof result === 'string') return result;
+    if (result === undefined) return '';
+    try {
+      return JSON.stringify(result) ?? String(result);
+    } catch {
+      try {
+        return String(result);
+      } catch {
+        return '<unserializable result>';
+      }
     }
   }
 
@@ -384,8 +574,7 @@ export class WorkflowInterpreter {
     config: WorkflowConfig,
     error?: string,
   ): ToolResponse {
-    const text =
-      typeof result === 'string' ? result : result === undefined ? '' : JSON.stringify(result);
+    const text = this.resultText(result);
     const truncated = text.length > config.maxResultChars;
     return {
       ok: error === undefined,

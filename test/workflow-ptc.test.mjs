@@ -62,6 +62,28 @@ test('exceeding maxPtcCalls fails without further invocations', async () => {
   );
 });
 
+test('an unbridgable tool value fails fast instead of hanging to timeout', async () => {
+  await withInterpreter(
+    {
+      config: {
+        executionTimeoutMs: 2000,
+        ptc: {
+          // JSON.stringify(BigInt) throws, so fromNative cannot bridge this.
+          bigint: async () => 10n,
+        },
+      },
+    },
+    async (interpreter) => {
+      const start = Date.now();
+      const response = await interpreter.evaluate('us003-unbridgable', 'await tools.bigint({});');
+      const elapsed = Date.now() - start;
+      assert.equal(response.ok, false);
+      assert.match(response.error ?? '', /Cannot bridge host value/);
+      assert.ok(elapsed < 2000, `must fail fast, not hang to timeout (took ${elapsed}ms)`);
+    },
+  );
+});
+
 test('Promise.all over tools.* returns results in dispatch order', async () => {
   await withInterpreter(
     {

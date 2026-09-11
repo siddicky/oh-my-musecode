@@ -66,7 +66,12 @@ export class WorkflowHost {
       ...extra,
     };
     this.events.push(event);
-    this.listener?.(event);
+    try {
+      this.listener?.(event);
+    } catch {
+      // Listener errors must not break the dispatch lifecycle or mask the
+      // dispatcher outcome.
+    }
   }
 
   /**
@@ -83,11 +88,12 @@ export class WorkflowHost {
       for (;;) {
         attempt += 1;
         this.emit('started', runId, attempt, request);
-        const outcome = await this.raceAttempt(state.controller.signal, () =>
+        const outcome = await this.raceAttempt(state.controller.signal, (signal) =>
           dispatcher({
             ...request,
             runId,
             attempt,
+            signal,
           }),
         );
         switch (outcome.status) {
@@ -132,19 +138,26 @@ export class WorkflowHost {
 
   private raceAttempt(
     signal: AbortSignal,
-    work: () => Promise<string>,
+    work: (signal: AbortSignal) => Promise<string>,
   ): Promise<AttemptOutcome> {
     if (signal.aborted) {
-      const reason = signal.reason as 'cancelled' | 'restart';
-      if (reason === 'restart') return Promise.resolve({ status: 'restart' });
-      return Promise.resolve({ status: 'cancelled' });
+      return Promise.resolve({ status: this.abortStatus(signal.reason) });
+    }
+    // Invoke outside the Promise executor so a synchronous dispatcher throw
+    // routes through the failed path instead of rejecting raceAttempt from
+    // inside the executor.
+    let pending: Promise<string>;
+    try {
+      pending = work(signal);
+    } catch (error: unknown) {
+      return Promise.resolve({ status: 'failed', error });
     }
     return new Promise((resolve) => {
       const onAbort = (): void => {
-        resolve({ status: signal.reason as 'cancelled' | 'restart' });
+        resolve({ status: this.abortStatus(signal.reason) });
       };
       signal.addEventListener('abort', onAbort, { once: true });
-      work().then(
+      pending.then(
         (output) => {
           signal.removeEventListener('abort', onAbort);
           resolve({ status: 'ok', output });
@@ -157,5 +170,12 @@ export class WorkflowHost {
         },
       );
     });
+  }
+
+  private abortStatus(reason: unknown): 'cancelled' | 'restart' {
+    // Only cancel() and restart() abort this signal, but default unknown
+    // reasons to cancelled so a stray abort can never silently re-loop as a
+    // restart.
+    return reason === 'restart' ? 'restart' : 'cancelled';
   }
 }

@@ -52,6 +52,31 @@ test('console output is captured, and captureConsole:false discards it', async (
   }
 });
 
+test('an unserializable result falls back to text instead of throwing', async () => {
+  const interpreter = new WorkflowInterpreter();
+  try {
+    const response = await interpreter.evaluate('us001-bigint', '10n;');
+    assert.equal(response.ok, true);
+    assert.equal(response.text, '10');
+  } finally {
+    interpreter.disposeAll();
+  }
+});
+
+test('exported declarations evaluate and persist like plain ones', async () => {
+  const interpreter = new WorkflowInterpreter();
+  try {
+    const first = await interpreter.evaluate('us001-export', 'export const x = 41;\nx + 1;');
+    assert.equal(first.ok, true);
+    assert.equal(first.result, 42);
+    const second = await interpreter.evaluate('us001-export', 'x + 1;');
+    assert.equal(second.ok, true);
+    assert.equal(second.result, 42);
+  } finally {
+    interpreter.disposeAll();
+  }
+});
+
 test('results longer than maxResultChars truncate to exactly that count', async () => {
   const interpreter = new WorkflowInterpreter({ config: { maxResultChars: 16 } });
   try {
