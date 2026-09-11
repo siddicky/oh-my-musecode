@@ -22,6 +22,8 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "acorn": "^8.18.0",
+    "quickjs-emscripten": "^0.32.0",
     "zod": "^4.5.4"
   },
   "author": "Abdullah Siddique",
