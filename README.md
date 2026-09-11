@@ -141,6 +141,24 @@ muse skills list --source user
 All 7 (`deep-interview`, `deep-dive`, `trace`, `ralplan`, `ralph`, `team`,
 `cancel`) should appear with `scope: "user"`.
 
+## Publishing releases
+
+This repository publishes to npm through GitHub Actions using npm Trusted
+Publishing. Before the first automated release, open the package settings for
+`@siddicky/oh-my-musecode` on npm and add a GitHub Actions trusted publisher
+with these values:
+
+- Organization or user: `siddicky`
+- Repository: `oh-my-musecode`
+- Workflow filename: `publish.yml`
+- Environment: leave blank
+
+Then update the version in `package.json` and `package-lock.json`, merge that
+change, and publish a GitHub Release whose tag matches the version with a `v`
+prefix. For version `0.2.0`, use tag `v0.2.0`. The release workflow rejects a
+mismatched tag, runs the package tests, and publishes the public package with
+npm provenance. It does not use an `NPM_TOKEN` repository secret.
+
 ## Skills
 
 Seven skills, installed user-scoped on this build, **explicit-invocation
