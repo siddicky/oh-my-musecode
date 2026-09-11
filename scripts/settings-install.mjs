@@ -43,6 +43,18 @@ function shellQuote(value) {
   return `'${String(value).replaceAll("'", `'\\''`)}'`;
 }
 
+/**
+ * Reverses `shellQuote`: extracts the single-quoted path argument from a
+ * `node '<path>'` command string. Returns `null` for anything that doesn't
+ * match that exact shape (a hand-written or differently-quoted command is
+ * left alone rather than misparsed).
+ */
+export function unshellQuote(command) {
+  const match = /^node '((?:[^']|'\\''|'')*)'$/.exec(command ?? '');
+  if (!match) return null;
+  return match[1].replaceAll("'\\''", "'").replaceAll("''", "'");
+}
+
 /** True when a hook command points at a script inside this plugin. */
 function commandBelongsTo(command, pluginRoot) {
   return typeof command === 'string' && command.includes(join(pluginRoot, 'hooks'));

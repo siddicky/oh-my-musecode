@@ -1,6 +1,6 @@
 {
   "name": "@siddicky/oh-my-musecode",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "An OMC-shaped delivery harness for Meta Muse Code: deep-interview -> ralplan -> ralph, plus deep-dive/trace, team and cancel.",
   "type": "module",
   "license": "MIT",
@@ -9,18 +9,20 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node --test \"test/**/*.test.mjs\"",
+    "test": "npm run build && node --test test/*.test.mjs",
     "lint": "node scripts/verify-manifest.mjs && tsc -p tsconfig.json --noEmit",
     "verify:manifest": "node scripts/verify-manifest.mjs",
     "verify:skills": "node scripts/verify-skills.mjs",
-    "install:muse": "node scripts/install.mjs"
+    "install:muse": "node scripts/install.mjs install",
+    "prepublishOnly": "npm run build && npm test"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "typescript": "^5.6.0"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0"
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.5.4"
   },
   "author": "Abdullah Siddique",
   "repository": {
@@ -52,6 +54,5 @@
   ],
   "bin": {
     "oh-my-musecode": "scripts/install.mjs"
-  },
-  "prepublishOnly": "npm run build && npm test"
+  }
 }
