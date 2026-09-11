@@ -78,3 +78,62 @@ test('a re-run dispatches the saved model and effort defaults', async () => {
     assert.equal(seen.dispatched[0].effort, 'saved-effort');
   });
 });
+
+test('saved workflows persist the PTC mode and default to guarded', async () => {
+  await withStore(async (store, dir) => {
+    saveWorkflow(store, { ...DEFINITION, name: 'open', ptcMode: 'unleashed' });
+    saveWorkflow(store, { ...DEFINITION, name: 'shut' });
+    const open = JSON.parse(
+      readFileSync(join(dir, '.omm', 'workflows', 'open.json'), 'utf8'),
+    );
+    const shut = JSON.parse(
+      readFileSync(join(dir, '.omm', 'workflows', 'shut.json'), 'utf8'),
+    );
+    assert.equal(open.ptcMode, 'unleashed');
+    assert.equal(shut.ptcMode, 'guarded');
+  });
+});
+
+test('a re-run replays unleashed mode with a re-supplied resolver', async () => {
+  await withStore(async (store) => {
+    saveWorkflow(store, {
+      name: 'open-run',
+      script: `await tools.unlisted({}); await tools.unlisted({}); 'done';`,
+      ptc: [],
+      ptcMode: 'unleashed',
+      limits: { maxPtcCalls: 1 },
+    });
+    // Guarded replay would fail twice over: unlisted tool, over the call cap.
+    const response = await runWorkflow(store, 'open-run', {
+      tools: {},
+      toolResolver: () => async () => 'r',
+    });
+    assert.equal(response.ok, true);
+    assert.equal(response.text, 'done');
+  });
+});
+
+test('a workflow saved before the mode existed replays guarded', async () => {
+  await withStore(async (store) => {
+    const legacy = {
+      name: 'legacy',
+      script: `await tools.upper({ text: 'a' }); await tools.upper({ text: 'b' });`,
+      ptc: ['upper'],
+      subagentMap: {},
+      limits: {
+        memoryLimitBytes: 32 * 1024 * 1024,
+        maxStackSizeBytes: 256 * 1024,
+        executionTimeoutMs: 8000,
+        maxResultChars: 8000,
+        maxPtcCalls: 1,
+      },
+      createdAt: new Date(0).toISOString(),
+    };
+    store.write('workflows/legacy.json', JSON.stringify(legacy));
+    const response = await runWorkflow(store, 'legacy', {
+      tools: { upper: async (args) => String(args.text).toUpperCase() },
+    });
+    assert.equal(response.ok, false);
+    assert.match(response.error ?? '', /maxPtcCalls/);
+  });
+});

@@ -15,6 +15,7 @@ const EXPECTED_CONFIG_KEYS = [
   'maxStackSizeBytes',
   'memoryLimitBytes',
   'ptc',
+  'ptcMode',
   'subagents',
   'systemPrompt',
   'toolName',
@@ -52,6 +53,7 @@ test('defaults match the ralplan-confirmed values', () => {
     systemPrompt: null,
     ptc: {},
     maxPtcCalls: 64,
+    ptcMode: 'guarded',
     subagents: true,
   });
 });

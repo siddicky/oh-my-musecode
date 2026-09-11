@@ -12,6 +12,15 @@ export type PtcTool = (args: Record<string, unknown>) => unknown | Promise<unkno
 /** Allowlist of host tools, keyed by original tool name (e.g. `web_search`). */
 export type PtcAllowlist = Record<string, PtcTool>;
 
+/**
+ * `guarded` (default) exposes exactly the static `ptc` allowlist and enforces
+ * `maxPtcCalls`. `unleashed` drops the call cap and resolves any other tool
+ * name through the host's `toolResolver`, so scripts see the widest tool path
+ * the host offers. Unleashed mode does not lift sandbox limits (memory, stack,
+ * timeout) or result truncation — only the PTC restrictions.
+ */
+export type PtcMode = 'guarded' | 'unleashed';
+
 /** Caller-configured defaults for one subagent type. */
 export interface SubagentDefault {
   model?: string;
@@ -69,6 +78,7 @@ export interface WorkflowConfig {
   systemPrompt: string | null;
   ptc: PtcAllowlist;
   maxPtcCalls: number | null;
+  ptcMode: PtcMode;
   subagents: boolean;
 }
 
@@ -83,6 +93,7 @@ export const DEFAULT_WORKFLOW_CONFIG: WorkflowConfig = {
   systemPrompt: null,
   ptc: {},
   maxPtcCalls: 64,
+  ptcMode: 'guarded',
   subagents: true,
 };
 

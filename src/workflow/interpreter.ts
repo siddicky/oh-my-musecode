@@ -23,6 +23,7 @@ import {
   DEFAULT_WORKFLOW_CONFIG,
   toCamelCase,
   type PtcAllowlist,
+  type PtcTool,
   type SubagentDispatcher,
   type SubagentMap,
   type ToolResponse,
@@ -36,6 +37,13 @@ export interface InterpreterOptions {
   host?: WorkflowHost;
   /** Overrides WASM module loading; defaults to getQuickJS(). A test seam for load failure. */
   moduleLoader?: () => Promise<QuickJSWASMModule>;
+  /**
+   * Resolves tool names beyond the static allowlist when `ptcMode` is
+   * `'unleashed'`. Receives the exact property name accessed on `tools` and
+   * returns the tool, or `undefined` for unknown names. Must be synchronous
+   * and cheap; it runs on every tool access. Ignored in guarded mode.
+   */
+  toolResolver?: (name: string) => PtcTool | undefined;
 }
 
 type PendingPromise = ReturnType<QuickJSContext['newPromise']>;
@@ -71,11 +79,36 @@ function formatConsoleArg(value: unknown): string {
   }
 }
 
+/**
+ * Builds the unleashed `tools` proxy: every property access resolves through
+ * the host, and unresolvable names stay absent. The bridge functions are
+ * captured by the closure and deleted from global scope so agent code sees
+ * only `tools`.
+ */
+const UNLEASHED_TOOLS_SETUP = `globalThis.tools = (() => {
+  const has = globalThis.__ptcHas;
+  const call = globalThis.__ptcCall;
+  const proxy = new Proxy({}, {
+    get(_target, property) {
+      if (typeof property !== 'string') return undefined;
+      if (has(property) !== 1) return undefined;
+      return (args) => call(property, args);
+    },
+    has(_target, property) {
+      return typeof property === 'string' && has(property) === 1;
+    },
+  });
+  delete globalThis.__ptcHas;
+  delete globalThis.__ptcCall;
+  return proxy;
+})();`;
+
 export class WorkflowInterpreter {
   private readonly siteConfig: WorkflowConfig;
   private readonly subagentMap: SubagentMap;
   private readonly dispatcher: SubagentDispatcher | undefined;
   private readonly host: WorkflowHost;
+  private readonly toolResolver: ((name: string) => PtcTool | undefined) | undefined;
   private readonly moduleLoader: () => Promise<QuickJSWASMModule>;
   private modulePromise: Promise<QuickJSWASMModule> | undefined;
   private readonly sessions = new Map<string, SessionState>();
@@ -86,6 +119,7 @@ export class WorkflowInterpreter {
     this.subagentMap = options.subagentMap ?? {};
     this.dispatcher = options.dispatcher;
     this.host = options.host ?? new WorkflowHost();
+    this.toolResolver = options.toolResolver;
     this.moduleLoader = options.moduleLoader ?? getQuickJS;
   }
 
@@ -318,6 +352,20 @@ export class WorkflowInterpreter {
     scope: BridgeScope,
     beforeCall: () => void,
   ): void {
+    if (config.ptcMode === 'unleashed') {
+      this.defineToolsUnleashed(context, track, config, scope);
+    } else {
+      this.defineToolsGuarded(context, track, config, scope, beforeCall);
+    }
+  }
+
+  private defineToolsGuarded(
+    context: QuickJSContext,
+    track: (handle: QuickJSHandle) => QuickJSHandle,
+    config: WorkflowConfig,
+    scope: BridgeScope,
+    beforeCall: () => void,
+  ): void {
     const allowlist: PtcAllowlist = config.ptc;
     const toolsObj = track(context.newObject());
     for (const [originalName, tool] of Object.entries(allowlist)) {
@@ -326,40 +374,104 @@ export class WorkflowInterpreter {
         context.newFunction(name, (...argHandles) => {
           beforeCall();
           const rawArgs = argHandles.length > 0 ? context.dump(argHandles[0]) : {};
-          const args = isRecord(rawArgs) ? rawArgs : {};
-          const runtime = (context.runtime ?? undefined) as QuickJSRuntime | undefined;
-          const deferred = context.newPromise();
-          scope.session.inflight.add(deferred);
-          Promise.resolve()
-            .then(() => tool(args))
-            .then(
-              (native) => {
-                this.settleBridge(scope, runtime, deferred, () => {
-                  const valueHandle = this.fromNative(context, native);
-                  try {
-                    deferred.resolve(valueHandle);
-                  } finally {
-                    valueHandle.dispose();
-                  }
-                });
-              },
-              (error: unknown) => {
-                this.settleBridge(scope, runtime, deferred, () => {
-                  const messageHandle = context.newString(errorMessage(error));
-                  try {
-                    deferred.reject(messageHandle);
-                  } finally {
-                    messageHandle.dispose();
-                  }
-                });
-              },
-            );
-          return deferred.handle;
+          return this.invokePtcTool(scope, context, tool, rawArgs);
         }),
       );
       context.setProp(toolsObj, name, fn);
     }
     context.setProp(context.global, 'tools', toolsObj);
+  }
+
+  /**
+   * Unleashed PTC: no call cap, and any tool name resolves — first against
+   * the static allowlist (camelCase, as in guarded mode), then through the
+   * host's `toolResolver`. Unresolvable names stay absent, exactly as in
+   * guarded mode. The `__ptc*` bridge functions are captured by the proxy
+   * closure and removed from the global scope during setup.
+   */
+  private defineToolsUnleashed(
+    context: QuickJSContext,
+    track: (handle: QuickJSHandle) => QuickJSHandle,
+    config: WorkflowConfig,
+    scope: BridgeScope,
+  ): void {
+    const listed = new Map<string, PtcTool>();
+    for (const [originalName, tool] of Object.entries(config.ptc)) {
+      listed.set(toCamelCase(originalName), tool);
+    }
+    const resolver = this.toolResolver;
+    const resolve = (name: string): PtcTool | undefined =>
+      listed.get(name) ?? resolver?.(name);
+    const hasFn = track(
+      context.newFunction('__ptcHas', (...argHandles) => {
+        const name = argHandles.length > 0 ? context.dump(argHandles[0]) : undefined;
+        // No boolean constructor on the context; the proxy compares to 1.
+        return context.newNumber(
+          typeof name === 'string' && resolve(name) !== undefined ? 1 : 0,
+        );
+      }),
+    );
+    context.setProp(context.global, '__ptcHas', hasFn);
+    const callFn = track(
+      context.newFunction('__ptcCall', (...argHandles) => {
+        const name = argHandles.length > 0 ? context.dump(argHandles[0]) : undefined;
+        const rawArgs = argHandles.length > 1 ? context.dump(argHandles[1]) : {};
+        const tool = typeof name === 'string' ? resolve(name) : undefined;
+        if (!tool) {
+          throw new Error(`Unknown tool "${String(name)}": the resolver has no such tool.`);
+        }
+        return this.invokePtcTool(scope, context, tool, rawArgs);
+      }),
+    );
+    context.setProp(context.global, '__ptcCall', callFn);
+    const setup = context.evalCode(UNLEASHED_TOOLS_SETUP, 'workflow-tools');
+    if (setup.error) {
+      const message = formatConsoleArg(context.dump(setup.error));
+      setup.error.dispose();
+      throw new Error(`Cannot initialize unleashed tools: ${message}`);
+    }
+    setup.value.dispose();
+  }
+
+  /**
+   * Invokes one PTC tool and bridges its settlement into the sandbox,
+   * returning the in-sandbox promise handle. Shared by both PTC modes.
+   */
+  private invokePtcTool(
+    scope: BridgeScope,
+    context: QuickJSContext,
+    tool: PtcTool,
+    rawArgs: unknown,
+  ): QuickJSHandle {
+    const runtime = (context.runtime ?? undefined) as QuickJSRuntime | undefined;
+    const args = isRecord(rawArgs) ? rawArgs : {};
+    const deferred = context.newPromise();
+    scope.session.inflight.add(deferred);
+    Promise.resolve()
+      .then(() => tool(args))
+      .then(
+        (native) => {
+          this.settleBridge(scope, runtime, deferred, () => {
+            const valueHandle = this.fromNative(context, native);
+            try {
+              deferred.resolve(valueHandle);
+            } finally {
+              valueHandle.dispose();
+            }
+          });
+        },
+        (error: unknown) => {
+          this.settleBridge(scope, runtime, deferred, () => {
+            const messageHandle = context.newString(errorMessage(error));
+            try {
+              deferred.reject(messageHandle);
+            } finally {
+              messageHandle.dispose();
+            }
+          });
+        },
+      );
+    return deferred.handle;
   }
 
   /**

@@ -17,6 +17,7 @@ export {
   DEFAULT_WORKFLOW_CONFIG,
   toCamelCase,
   type PtcAllowlist,
+  type PtcMode,
   type PtcTool,
   type SubagentDefault,
   type SubagentMap,

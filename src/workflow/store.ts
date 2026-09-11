@@ -2,15 +2,23 @@
  * Save and reuse for named interpreter workflows.
  *
  * A saved workflow is its script plus the configuration needed to replay it:
- * PTC tool names, the subagent map with model/effort defaults, and the
- * tuned limits. Re-running resolves tool names against caller-supplied
- * implementations, so stored definitions never serialize functions.
+ * PTC tool names, the PTC mode, the subagent map with model/effort defaults,
+ * and the tuned limits. Re-running resolves tool names against caller-supplied
+ * implementations (and unlisted names against a re-supplied resolver), so
+ * stored definitions never serialize functions.
  */
 
 import { StateStore } from '../state.js';
 import { WorkflowInterpreter } from './interpreter.js';
-import type { SubagentDispatcher, SubagentMap, ToolResponse, WorkflowConfig } from './types.js';
-import type { PtcAllowlist } from './types.js';
+import type {
+  PtcAllowlist,
+  PtcMode,
+  PtcTool,
+  SubagentDispatcher,
+  SubagentMap,
+  ToolResponse,
+  WorkflowConfig,
+} from './types.js';
 
 export interface WorkflowLimits {
   memoryLimitBytes: number;
@@ -24,6 +32,7 @@ export interface SavedWorkflow {
   name: string;
   script: string;
   ptc: string[];
+  ptcMode: PtcMode;
   subagentMap: SubagentMap;
   limits: WorkflowLimits;
   createdAt: string;
@@ -33,6 +42,7 @@ export interface SaveWorkflowInput {
   name: string;
   script: string;
   ptc?: string[];
+  ptcMode?: PtcMode;
   subagentMap?: SubagentMap;
   limits?: Partial<WorkflowLimits>;
 }
@@ -61,6 +71,7 @@ export function saveWorkflow(store: StateStore, input: SaveWorkflowInput): Saved
     name: input.name,
     script: input.script,
     ptc: [...(input.ptc ?? [])],
+    ptcMode: input.ptcMode ?? 'guarded',
     subagentMap: input.subagentMap ?? {},
     limits: {
       memoryLimitBytes: 32 * 1024 * 1024,
@@ -108,6 +119,7 @@ export function deleteWorkflow(store: StateStore, name: string): boolean {
 export interface RunSavedWorkflowOptions {
   tools: PtcAllowlist;
   dispatcher?: SubagentDispatcher;
+  toolResolver?: (name: string) => PtcTool | undefined;
   sessionId?: string;
   runCounter?: number;
 }
@@ -135,10 +147,12 @@ export async function runWorkflow(
       executionTimeoutMs: saved.limits.executionTimeoutMs,
       maxResultChars: saved.limits.maxResultChars,
       maxPtcCalls: saved.limits.maxPtcCalls,
+      ptcMode: saved.ptcMode ?? 'guarded',
       ptc: allowlist,
     },
     subagentMap: saved.subagentMap,
     dispatcher: options.dispatcher,
+    toolResolver: options.toolResolver,
   });
   try {
     const sessionId = options.sessionId ?? `saved:${name}:${++runSequence}`;

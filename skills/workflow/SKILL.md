@@ -39,6 +39,24 @@ normal tool path, so per-call approval workflows are bypassed for calls made
 from interpreter code. Keep the PTC allowlist narrow: never bridge broad,
 mutating, or spending tools unless that behavior is intentional.
 
+## Unleashed mode
+
+Guarded mode (default) exposes exactly the static allowlist and enforces
+`maxPtcCalls`. Unleashed mode (`ptcMode: "unleashed"`) lifts both:
+
+- No call cap: `maxPtcCalls` is ignored.
+- Open resolution: any `tools.*` name resolves — first against the static
+  allowlist, then through the host's `toolResolver`. Names the resolver
+  cannot resolve stay absent, exactly as in guarded mode.
+
+Unleashed mode does not lift sandbox limits (memory, stack, timeout) or
+result truncation — only the PTC restrictions.
+
+Warning: unleashed mode plus a broad resolver gives agent-authored code the
+widest tool path the host offers, still with per-call approvals bypassed.
+Use it only for trusted loops where that breadth is intentional, and prefer
+a resolver that exposes read-only tools unless mutation is the point.
+
 ## PTC example
 
 ```js
@@ -75,7 +93,8 @@ Omitted `model`/`effort` fall back to the caller map for that subagent type.
 
 ## Save and reuse
 
-Name a useful script plus its config (PTC names, subagent map, limits) with
-saveWorkflow under `.omm/workflows/`; list, re-run, or delete it later.
-A re-run replays the same fan-out against caller-supplied tool
-implementations.
+Name a useful script plus its config (PTC names, PTC mode, subagent map,
+limits) with saveWorkflow under `.omm/workflows/`; list, re-run, or delete
+it later. A re-run replays the saved mode and fan-out against
+caller-supplied tool implementations, re-supplying the unleashed resolver
+when the saved mode needs one.
