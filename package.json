@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node --test \"test/**/*.test.mjs\"",
+    "test": "npm run build && node --test test/*.test.mjs",
     "lint": "node scripts/verify-manifest.mjs && tsc -p tsconfig.json --noEmit",
     "verify:manifest": "node scripts/verify-manifest.mjs",
     "verify:skills": "node scripts/verify-skills.mjs",
