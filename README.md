@@ -151,13 +151,16 @@ with these values:
 - Organization or user: `siddicky`
 - Repository: `oh-my-musecode`
 - Workflow filename: `publish.yml`
-- Environment: leave blank
+- Environment: `npm`
+- Allowed action: `npm publish`
 
-Then update the version in `package.json` and `package-lock.json`, merge that
-change, and publish a GitHub Release whose tag matches the version with a `v`
-prefix. For version `0.2.0`, use tag `v0.2.0`. The release workflow rejects a
-mismatched tag, runs the package tests, and publishes the public package with
-npm provenance. It does not use an `NPM_TOKEN` repository secret.
+Create a GitHub environment named `npm` and protect it with required reviewers
+if releases need manual approval. Then update the version in `package.json` and
+`package-lock.json`, merge that change, and publish a GitHub Release whose tag
+matches the version with a `v` prefix. For version `0.2.0`, use tag `v0.2.0`.
+The release workflow rejects a mismatched tag, runs the package tests, and
+publishes the public package with npm provenance. It does not use an `NPM_TOKEN`
+repository secret.
 
 ## Skills
 

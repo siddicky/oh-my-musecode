@@ -86,10 +86,13 @@ test('resolveDependencyClosure: a root-level dependency wins the top-level hoist
 test('a packed-and-extracted tarball (no node_modules yet) can still run install --dry-run and --help', () => {
   const packDir = mkdtempSync(join(tmpdir(), 'omm-harden-pack-'));
   try {
-    const tgzName = execFileSync('npm', ['pack', '--pack-destination', packDir, '--silent'], {
-      cwd: ROOT,
-      encoding: 'utf8',
-    }).trim();
+    const packResult = JSON.parse(
+      execFileSync('npm', ['pack', '--pack-destination', packDir, '--json'], {
+        cwd: ROOT,
+        encoding: 'utf8',
+      }),
+    );
+    const tgzName = packResult[0].filename;
     const extractDir = join(packDir, 'extracted');
     mkdirSync(extractDir, { recursive: true });
     execFileSync('tar', ['-xzf', join(packDir, tgzName), '-C', extractDir]);

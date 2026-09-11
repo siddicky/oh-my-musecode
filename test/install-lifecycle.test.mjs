@@ -1,7 +1,7 @@
 /**
  * End-to-end lifecycle coverage for the installer: real (non-dry-run) install,
  * uninstall, --purge, and doctor, all against a throwaway XDG_CONFIG_HOME and a
- * real `muse` subprocess — never the developer's real ~/.config/muse.
+ * deterministic `muse` subprocess — never the developer's real ~/.config/muse.
  *
  * See test/install.test.mjs for the argument-parsing and settings-merge unit
  * coverage; this file is the "does the whole thing actually work" layer:

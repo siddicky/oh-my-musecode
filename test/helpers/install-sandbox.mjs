@@ -11,7 +11,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,7 +25,7 @@ export function museTestEnv(configHome) {
   const binDir = join(configHome, 'test-bin');
   const launcher = join(binDir, 'muse');
   mkdirSync(binDir, { recursive: true });
-  writeFileSync(launcher, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(FAKE_MUSE)} "$@"\n`);
+  copyFileSync(FAKE_MUSE, launcher);
   chmodSync(launcher, 0o755);
   return {
     ...process.env,
