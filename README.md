@@ -35,6 +35,45 @@ Sequencing between stages works the same way: no `SKILL.md` chains
 automatically into the next one — the skill's body tells you, in prose, what
 to run next (`deep-interview` → "run `/ralplan`"; `ralplan` → "run `/ralph`").
 
+## Dynamic workflows
+
+Beyond the staged pipeline, the repo ships a QuickJS-sandboxed workflow
+runtime (`src/workflow/`) plus a `/workflow` skill. Agent-authored
+JavaScript runs in a WASM sandbox with session-persistent state and two
+bridges to the host:
+
+- **PTC** — programmatic tool calling as `await tools.camelCaseName(args)`.
+  Guarded mode (default) exposes exactly the static allowlist and enforces
+  `maxPtcCalls`. Unleashed mode (`ptcMode: "unleashed"`) drops the call cap
+  and resolves any tool name through the host's `toolResolver`.
+- **`task()`** — subagent fan-out. Each dispatch runs as a host run with
+  started/progress/completed/cancelled lifecycle events, cancel/restart
+  propagation, and a per-attempt `AbortSignal` handed to the dispatcher.
+
+Named scripts plus their config (PTC names, PTC mode, subagent map, limits)
+save under `.omm/workflows/` for list/re-run/delete. The event stream is
+the seam a `/workflows`-style run list consumes; `test/workflow-ui.test.mjs`
+locks in that a mixed fan-out (complete + cancel + restart) projects to a
+consistent run list.
+
+Two honest status notes: the runtime is library-only today — no MCP tool or
+CLI verb wires it up yet, so hosts embed it via `createWorkflowTool` (see
+`examples/`). And this Muse build ships no native `workflow/*` command
+plane, so dispatches surface through host-implemented adapters (e.g. a
+`muse exec` dispatcher), not a built-in `/workflows` view.
+
+Run the capability demo from a built checkout:
+
+```bash
+npm run build
+node examples/unleashed-recon.mjs
+```
+
+It runs one recon script guarded (trips `maxPtcCalls=3`, unlisted tools
+absent) then unleashed (9 calls sail through, resolver tools discovered
+dynamically), plus a session-persistence recall. The captured terminal
+output is checked in at `examples/unleashed-recon.output.txt`.
+
 ## Install from npm
 
 You need Node.js 20 or newer and the `muse` command on your `PATH`. Run:
@@ -46,7 +85,7 @@ npx -y @siddicky/oh-my-musecode install
 This is the supported npm installation path. If the installer prints
 `plugins are not available in this build`, that is a Muse build limitation,
 not an installation failure. There is no local setting that enables the plugin
-subsystem. The installer detects this response and installs the seven skills at
+subsystem. The installer detects this response and installs the eight skills at
 user scope, then registers the hooks and MCP server directly in Muse settings.
 
 Close and reopen Muse after installation so it reloads the settings. Then check
@@ -58,8 +97,8 @@ muse skills list --source user
 ```
 
 `doctor` must end with `doctor: healthy`. The skill list must include
-`deep-interview`, `deep-dive`, `trace`, `ralplan`, `ralph`, `team`, and
-`cancel`. The `--source user` filter is intentional because the fallback
+`deep-interview`, `deep-dive`, `trace`, `ralplan`, `ralph`, `team`,
+`cancel`, and `workflow`. The `--source user` filter is intentional because the fallback
 installer installs these skills into Muse's personal skill root. Merely cloning
 this repository does not register its top-level `skills/` directory as a Muse
 project skill source.
@@ -87,7 +126,7 @@ through three routes verified to work:
 
 | Piece | Route |
 |---|---|
-| Skills | `muse skills install <dir> --scope user --force` for each of the 7 skills, landing in `$CONFIG_DIR/skills/` |
+| Skills | `muse skills install <dir> --scope user --force` for each of the 8 skills, landing in `$CONFIG_DIR/skills/` |
 | Hooks | a `hooks` entry merged into `$CONFIG_DIR/muse/settings.json`, pointing at the stable home |
 | MCP server | an `mcpServers` entry in the same `settings.json`, pointing at the stable home |
 
@@ -110,7 +149,7 @@ compatibility.
 
 ```bash
 npx -y @siddicky/oh-my-musecode uninstall            # removes our hooks/mcp entries from settings.json, deletes the installed stable home
-npx -y @siddicky/oh-my-musecode uninstall --purge     # also removes the 7 installed skills
+npx -y @siddicky/oh-my-musecode uninstall --purge     # also removes the installed skills
 ```
 
 `uninstall` preserves every other value in `settings.json` exactly (the document
@@ -127,7 +166,7 @@ npx -y @siddicky/oh-my-musecode doctor
 installed `settings.json`, confirms the 3 hooks (`SessionStart`, `Stop`,
 `UserPromptSubmit`) resolve on disk, does a real MCP client handshake
 against the `omm-state` server (not just a process-alive check), and
-confirms all 7 skills are visible via `muse skills list`. It prints one line
+confirms all 8 skills are visible via `muse skills list`. It prints one line
 per check and exits non-zero naming the failed check(s) if anything is
 wrong.
 
@@ -138,8 +177,8 @@ directly:
 muse skills list --source user
 ```
 
-All 7 (`deep-interview`, `deep-dive`, `trace`, `ralplan`, `ralph`, `team`,
-`cancel`) should appear with `scope: "user"`.
+All 8 (`deep-interview`, `deep-dive`, `trace`, `ralplan`, `ralph`, `team`,
+`cancel`, `workflow`) should appear with `scope: "user"`.
 
 ## Publishing releases
 
@@ -164,7 +203,7 @@ repository secret.
 
 ## Skills
 
-Seven skills, installed user-scoped on this build, **explicit-invocation
+Eight skills, installed user-scoped on this build, **explicit-invocation
 only** — muse never auto-fires a skill:
 
 | Skill | What it does |
@@ -176,6 +215,7 @@ only** — muse never auto-fires a skill:
 | `ralph` | Runs the PRD to completion: implement, verify each acceptance criterion, loop until done or blocked |
 | `team` | N persona subagents in parallel, each isolated in its own worktree, for genuinely independent work |
 | `cancel` | Ends the active pipeline stage and cleans up `.omm/` state — does not revert code |
+| `workflow` | Runs agent-authored JS in a QuickJS sandbox: `tools.*` PTC calls plus `task()` subagent fan-out |
 
 ## Personas
 
@@ -259,7 +299,7 @@ node scripts/install.mjs uninstall --purge                        # remove
 ```bash
 npm test           # build + node --test over test/**/*.test.mjs
 npm run lint        # verify-manifest.mjs + tsc --noEmit
-npm run verify:skills  # validates all 7 skills against the muse binary, failing on any inert frontmatter key
+npm run verify:skills  # validates all 8 skills against the muse binary, failing on any inert frontmatter key
 ```
 
 ## Credits and license
