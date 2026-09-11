@@ -76,7 +76,7 @@ function printHelp() {
              [--workspace <path>] [--config-dir <path>] [--dry-run]
 
   uninstall  Remove muse settings entries and delete the installed harness
-             [--config-dir <path>] [--purge]  (--purge also removes the 7 skills)
+             [--config-dir <path>] [--purge]  (--purge also removes the installed skills)
 
   doctor     Verify hooks resolve, the mcp server responds, and skills are visible
              [--workspace <path>] [--config-dir <path>]

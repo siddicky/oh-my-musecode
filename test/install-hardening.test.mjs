@@ -158,7 +158,12 @@ test('upgrading versions migrates settings.json away from the old stable home an
     assert.ok(!written.mcpServers['omm-state'].args[0].includes(oldHome), 'the mcp entry must point at the new version');
 
     const homeParentEntries = readdirSync(join(configHome, 'muse', 'oh-my-musecode'));
-    assert.deepEqual(homeParentEntries, ['0.2.0'], 'the old version directory must be pruned after a successful install');
+    const currentVersion = JSON.parse(readFileSync('package.json', 'utf8')).version;
+    assert.deepEqual(
+      homeParentEntries,
+      [currentVersion],
+      'the old version directory must be pruned after a successful install',
+    );
   });
 });
 

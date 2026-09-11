@@ -10,7 +10,8 @@
       "./skills/ralplan",
       "./skills/ralph",
       "./skills/team",
-      "./skills/cancel"
+      "./skills/cancel",
+      "./skills/workflow"
     ],
     "hooks": [
       "./hooks/hooks.json"

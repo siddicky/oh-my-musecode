@@ -44,6 +44,11 @@
         "id": "cancel",
         "path": "skills/cancel/SKILL.md",
         "enabledDefault": true
+      },
+      {
+        "id": "workflow",
+        "path": "skills/workflow/SKILL.md",
+        "enabledDefault": true
       }
     ],
     "commands": [],
