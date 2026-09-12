@@ -69,7 +69,10 @@ results.join("\n\n");
 
 Only allowlisted tools exist under `tools.*`, converted to camelCase
 (`web_search` becomes `tools.webSearch`). Calls beyond `maxPtcCalls` fail the
-`eval` without invoking anything further.
+`eval` without invoking anything further. Each admitted call also emits
+started/completed rows on the host event stream (`kind: "ptc"`, keyed by tool
+name), so tool activity shows up next to subagent runs in `/workflows`-style
+views; refused calls emit no rows — the thrown error is the record.
 
 ## task() fan-out example
 

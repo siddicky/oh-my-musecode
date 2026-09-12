@@ -4,7 +4,10 @@
  *
  * Every dispatch becomes a run with started/progress/completed lifecycle
  * events, which is what a `/workflows` view consumes as live progress —
- * where the install provides one. Native workflow availability is gated by
+ * where the install provides one. PTC tool calls likewise emit
+ * started/completed rows in their own `ptc-N` id namespace, discriminated
+ * by `kind: "ptc"` so adapters can project tool activity next to run lists.
+ * Native workflow availability is gated by
  * muse's per-install feature config (`workflow_tool`; verified true on Muse
  * 1.1.1-R2514.1 aarch64, with `workflow_api_v2_rollout` still false), and
  * installs compiled without the script engine say so at launch. This host
@@ -19,6 +22,8 @@ import type {
   SubagentDispatcher,
   WorkflowEvent,
   WorkflowEventType,
+  WorkflowPtcEvent,
+  WorkflowPtcEventType,
 } from "./types.js";
 
 export class WorkflowCancelledError extends Error {
@@ -50,6 +55,7 @@ export interface RunRequest {
 
 export class WorkflowHost {
   private nextId = 0;
+  private nextPtcId = 0;
   private readonly runs = new Map<string, RunState>();
   readonly events: WorkflowEvent[] = [];
   private readonly listener: ((event: WorkflowEvent) => void) | undefined;
@@ -66,6 +72,7 @@ export class WorkflowHost {
     extra?: { outputLength?: number; error?: string },
   ): void {
     const event: WorkflowEvent = {
+      kind: "subagent",
       type,
       runId,
       attempt,
@@ -131,6 +138,46 @@ export class WorkflowHost {
       }
     } finally {
       this.runs.delete(runId);
+    }
+  }
+
+  /**
+   * Runs one PTC tool call, emitting started/completed UI rows around it. A
+   * throwing tool emits no terminal event — mirroring a failed subagent
+   * dispatch — and the error propagates to the caller. Tool-call ids are
+   * never runs, so cancel/restart do not apply to them.
+   */
+  async runPtc(
+    tool: string,
+    invoke: () => Promise<unknown>,
+  ): Promise<unknown> {
+    const toolCallId = `ptc-${++this.nextPtcId}`;
+    this.emitPtc("started", toolCallId, tool);
+    const output = await invoke();
+    let outputLength: number | undefined;
+    try {
+      outputLength = JSON.stringify(output)?.length;
+    } catch {
+      outputLength = undefined;
+    }
+    this.emitPtc("completed", toolCallId, tool, outputLength);
+    return output;
+  }
+
+  private emitPtc(
+    type: WorkflowPtcEventType,
+    toolCallId: string,
+    tool: string,
+    outputLength?: number,
+  ): void {
+    const event: WorkflowPtcEvent = { kind: "ptc", type, toolCallId, tool };
+    if (outputLength !== undefined) event.outputLength = outputLength;
+    this.events.push(event);
+    try {
+      this.listener?.(event);
+    } catch {
+      // Listener errors must not break the tool-call lifecycle or mask the
+      // tool outcome.
     }
   }
 
