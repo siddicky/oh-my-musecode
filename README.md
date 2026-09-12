@@ -1,17 +1,18 @@
 # oh-my-musecode
 
-An OMC-shaped delivery harness for [Meta Muse Code](https://dev.meta.ai/docs/cookbook#building-with-muse-code)
-(the `muse` CLI): a gated pipeline from a vague request to verified working
-code. It ships a native Muse plugin manifest, but Muse 1.1.1 reports that
-plugins are unavailable in this build. The npm installer handles that limitation
-by using `muse skills install` plus a `settings.json` merge instead. See Install
-below.
+An OMC-shaped delivery harness for
+[Meta Muse Code](https://dev.meta.ai/docs/cookbook#building-with-muse-code) (the
+`muse` CLI): a gated pipeline from a vague request to verified working code. It
+ships a native Muse plugin manifest, but Muse 1.1.1 reports that plugins are
+unavailable in this build. The npm installer handles that limitation by using
+`muse skills install` plus a `settings.json` merge instead. See Install below.
 
-It ports oh-my-claudecode's Tier-0 pipeline — `deep-interview → deep-dive/trace
-→ ralplan → ralph`, plus `team` and `cancel` — onto `muse`, respecting
-Muse's approval/sandbox/trust/audit model instead of working around it. See
-[`docs/recipe.md`](docs/recipe.md) for the full walkthrough and acceptance
-run.
+It ports oh-my-claudecode's Tier-0 pipeline —
+`deep-interview → deep-dive/trace
+→ ralplan → ralph`, plus `team` and `cancel` —
+onto `muse`, respecting Muse's approval/sandbox/trust/audit model instead of
+working around it. See [`docs/recipe.md`](docs/recipe.md) for the full
+walkthrough and acceptance run.
 
 ## The pipeline
 
@@ -29,38 +30,59 @@ run.
 
 Every skill here is **explicit-invocation only**. Muse never fires a skill on
 its own because a task looks complex or ambiguous — you (or another skill's
-prose) has to name it. Each `SKILL.md` says this in its own body, because
-there is no `triggers` field in Muse's skill frontmatter to enforce it.
-Sequencing between stages works the same way: no `SKILL.md` chains
-automatically into the next one — the skill's body tells you, in prose, what
-to run next (`deep-interview` → "run `/ralplan`"; `ralplan` → "run `/ralph`").
+prose) has to name it. Each `SKILL.md` says this in its own body, because there
+is no `triggers` field in Muse's skill frontmatter to enforce it. Sequencing
+between stages works the same way: no `SKILL.md` chains automatically into the
+next one — the skill's body tells you, in prose, what to run next
+(`deep-interview` → "run `/ralplan`"; `ralplan` → "run `/ralph`").
 
 ## Dynamic workflows
 
-Beyond the staged pipeline, the repo ships a QuickJS-sandboxed workflow
-runtime (`src/workflow/`) plus a `/workflow` skill. Agent-authored
-JavaScript runs in a WASM sandbox with session-persistent state and two
-bridges to the host:
+Beyond the staged pipeline, the repo ships a QuickJS-sandboxed workflow runtime
+(`src/workflow/`) plus a `/workflow` skill. Agent-authored JavaScript runs in a
+WASM sandbox with session-persistent state and two bridges to the host:
 
 - **PTC** — programmatic tool calling as `await tools.camelCaseName(args)`.
   Guarded mode (default) exposes exactly the static allowlist and enforces
-  `maxPtcCalls`. Unleashed mode (`ptcMode: "unleashed"`) drops the call cap
-  and resolves any tool name through the host's `toolResolver`.
+  `maxPtcCalls`. Unleashed mode (`ptcMode: "unleashed"`) drops the call cap and
+  resolves any tool name through the host's `toolResolver`.
 - **`task()`** — subagent fan-out. Each dispatch runs as a host run with
   started/progress/completed/cancelled lifecycle events, cancel/restart
   propagation, and a per-attempt `AbortSignal` handed to the dispatcher.
 
-Named scripts plus their config (PTC names, PTC mode, subagent map, limits)
-save under `.omm/workflows/` for list/re-run/delete. The event stream is
-the seam a `/workflows`-style run list consumes; `test/workflow-ui.test.mjs`
-locks in that a mixed fan-out (complete + cancel + restart) projects to a
-consistent run list.
+Named scripts plus their config (PTC names, PTC mode, subagent map, limits) save
+under `.omm/workflows/` for list/re-run/delete. The event stream is the seam a
+`/workflows`-style run list consumes; `test/workflow-ui.test.mjs` locks in that
+a mixed fan-out (complete + cancel + restart) projects to a consistent run list.
 
-Two honest status notes: the runtime is library-only today — no MCP tool or
-CLI verb wires it up yet, so hosts embed it via `createWorkflowTool` (see
-`examples/`). And this Muse build ships no native `workflow/*` command
-plane, so dispatches surface through host-implemented adapters (e.g. a
-`muse exec` dispatcher), not a built-in `/workflows` view.
+Two honest status notes: the runtime is library-only today — no MCP tool or CLI
+verb wires it up yet, so hosts embed it via `createWorkflowTool` (see
+`examples/`). And native workflow availability in Muse itself is rollout-gated
+per install, not per platform: muse's feature config on this machine
+(`~/.local/share/muse/feature-config/`) reports `workflow_tool: true` and
+`workflow_api_v2_rollout: false` (with `plugins: false`), and Muse Code
+1.1.1-R2514.1 on aarch64-apple-darwin demonstrably runs native workflows — a
+headless `muse exec` run whose `workflow` tool call launched a JavaScript
+workflow (host API v1), spawned child subagents, reconciled, and completed.
+Earlier note that this artifact omits the workflow engine was wrong; builds
+genuinely compiled without the script engine say so plainly at launch time.
+Under `run.workflow_trigger_mode: "explicit"` the native tool fires only on the
+user's explicit ask. `src/workflow/native.ts` builds on that native plane: it
+compiles this repo's two runtime bridges into scripts for muse's own Workflow
+tool — `buildNativePtcScript` maps a PTC batch onto tightly-instructed child
+agents (admission enforced at generation time: un-allowlisted or cap-exceeded
+calls are never emitted, only reported; the allowlist is fail-closed, and a
+deliberate open batch passes the tools it intends to call), and
+`buildNativeFanoutScript` maps `task()` dynamic-subagent fan-out onto native
+`parallel` (auto-batched to the observed 8-child policy limit) plus the
+contract-mandated synthesis child. There is deliberately no native "unleashed"
+mode: the QuickJS interpreter's unleashed mode lifts a real runtime boundary
+(host-configured allowlist enforced against agent-authored code), while the
+native generator receives allowlist and calls from the same caller — an open
+mode would only skip a self-written checklist, and V1 scripts have no `tools.*`
+bridge to resolve against anyway. `test/workflow-native.test.mjs` checks shape,
+refusal semantics, batching, and that every generated script parses as an ES
+module.
 
 Run the capability demo from a built checkout:
 
@@ -69,10 +91,10 @@ npm run build
 node examples/unleashed-recon.mjs
 ```
 
-It runs one recon script guarded (trips `maxPtcCalls=3`, unlisted tools
-absent) then unleashed (9 calls sail through, resolver tools discovered
-dynamically), plus a session-persistence recall. The captured terminal
-output is checked in at `examples/unleashed-recon.output.txt`.
+It runs one recon script guarded (trips `maxPtcCalls=3`, unlisted tools absent)
+then unleashed (9 calls sail through, resolver tools discovered dynamically),
+plus a session-persistence recall. The captured terminal output is checked in at
+`examples/unleashed-recon.output.txt`.
 
 ## Install from npm
 
@@ -83,8 +105,8 @@ npx -y @siddicky/oh-my-musecode install
 ```
 
 This is the supported npm installation path. If the installer prints
-`plugins are not available in this build`, that is a Muse build limitation,
-not an installation failure. There is no local setting that enables the plugin
+`plugins are not available in this build`, that is a Muse build limitation, not
+an installation failure. There is no local setting that enables the plugin
 subsystem. The installer detects this response and installs the eight skills at
 user scope, then registers the hooks and MCP server directly in Muse settings.
 
@@ -97,19 +119,19 @@ muse skills list --source user
 ```
 
 `doctor` must end with `doctor: healthy`. The skill list must include
-`deep-interview`, `deep-dive`, `trace`, `ralplan`, `ralph`, `team`,
-`cancel`, and `workflow`. The `--source user` filter is intentional because the fallback
+`deep-interview`, `deep-dive`, `trace`, `ralplan`, `ralph`, `team`, `cancel`,
+and `workflow`. The `--source user` filter is intentional because the fallback
 installer installs these skills into Muse's personal skill root. Merely cloning
 this repository does not register its top-level `skills/` directory as a Muse
 project skill source.
 
 Under `npx`, the invoking package lives in a prunable npm cache directory
-(`~/.npm/_npx/<hash>/...`) that npm is free to clean up at any time. Before
-this was fixed, `settings.json`'s hook commands and the `omm-state` MCP
-server's `args` pointed straight at that cache path, so an install could
-silently break the next time npm pruned its cache. `install` now copies the
-harness (hooks, `dist/`, personas, and its resolved npm dependency closure)
-into a stable, versioned home under the muse config directory —
+(`~/.npm/_npx/<hash>/...`) that npm is free to clean up at any time. Before this
+was fixed, `settings.json`'s hook commands and the `omm-state` MCP server's
+`args` pointed straight at that cache path, so an install could silently break
+the next time npm pruned its cache. `install` now copies the harness (hooks,
+`dist/`, personas, and its resolved npm dependency closure) into a stable,
+versioned home under the muse config directory —
 `$XDG_CONFIG_HOME/muse/oh-my-musecode/<version>/`, or
 `~/.config/muse/oh-my-musecode/<version>/` when that's unset — and points
 `settings.json` there instead, so the install survives cache pruning.
@@ -117,33 +139,33 @@ into a stable, versioned home under the muse config directory —
 `install` first probes the local `muse` build: `muse plugins --help` answers
 "plugins are not available in this build" on Muse 1.1.1-R2514.1, and registering
 `.agents/plugins/marketplace.json` anyway just yields
-`muse skills list --source plugin --json` → `{"skills":[],"diagnostics":[]}`
-— no discovery, no error, nothing delivered. **There is no `muse plugin
-install` command on this build either.**
+`muse skills list --source plugin --json` → `{"skills":[],"diagnostics":[]}` —
+no discovery, no error, nothing delivered. **There is no `muse plugin
+install`
+command on this build either.**
 
 When plugins are unavailable, the installer skips the plugin route and delivers
 through three routes verified to work:
 
-| Piece | Route |
-|---|---|
-| Skills | `muse skills install <dir> --scope user --force` for each of the 8 skills, landing in `$CONFIG_DIR/skills/` |
-| Hooks | a `hooks` entry merged into `$CONFIG_DIR/muse/settings.json`, pointing at the stable home |
-| MCP server | an `mcpServers` entry in the same `settings.json`, pointing at the stable home |
+| Piece      | Route                                                                                                       |
+| ---------- | ----------------------------------------------------------------------------------------------------------- |
+| Skills     | `muse skills install <dir> --scope user --force` for each of the 8 skills, landing in `$CONFIG_DIR/skills/` |
+| Hooks      | a `hooks` entry merged into `$CONFIG_DIR/muse/settings.json`, pointing at the stable home                   |
+| MCP server | an `mcpServers` entry in the same `settings.json`, pointing at the stable home                              |
 
-(`$CONFIG_DIR` is `~/.config/muse`, or `$XDG_CONFIG_HOME/muse` when that's
-set.) The installer also runs an escalation preflight against your local
-`muse` build and reports plainly what it finds (see External critic below),
-refusing to install if an enterprise policy forbids the only escalation
-route entirely. `install` also accepts `--workspace <path>`,
-`--config-dir <path>`, and `--dry-run` (preview, writes nothing).
+(`$CONFIG_DIR` is `~/.config/muse`, or `$XDG_CONFIG_HOME/muse` when that's set.)
+The installer also runs an escalation preflight against your local `muse` build
+and reports plainly what it finds (see External critic below), refusing to
+install if an enterprise policy forbids the only escalation route entirely.
+`install` also accepts `--workspace <path>`, `--config-dir <path>`, and
+`--dry-run` (preview, writes nothing).
 
-The repo also ships a native `.muse-plugin/plugin.json` manifest — correct
-per muse's own documented plugin contract, and what a build with plugins
-*enabled* would load directly. `install` detects support at runtime
-(`pluginsSupported()`) and would use it automatically on such a build. On Muse
-1.1.1-R2514.1 it is inert; do not treat it as the working install path.
-`.claude-plugin/` is kept alongside it only for Claude-family tooling
-compatibility.
+The repo also ships a native `.muse-plugin/plugin.json` manifest — correct per
+muse's own documented plugin contract, and what a build with plugins _enabled_
+would load directly. `install` detects support at runtime (`pluginsSupported()`)
+and would use it automatically on such a build. On Muse 1.1.1-R2514.1 it is
+inert; do not treat it as the working install path. `.claude-plugin/` is kept
+alongside it only for Claude-family tooling compatibility.
 
 ### Uninstalling
 
@@ -164,14 +186,12 @@ npx -y @siddicky/oh-my-musecode doctor
 
 `doctor` is the documented way to verify an install. It re-reads the actual
 installed `settings.json`, confirms the 3 hooks (`SessionStart`, `Stop`,
-`UserPromptSubmit`) resolve on disk, does a real MCP client handshake
-against the `omm-state` server (not just a process-alive check), and
-confirms all 8 skills are visible via `muse skills list`. It prints one line
-per check and exits non-zero naming the failed check(s) if anything is
-wrong.
+`UserPromptSubmit`) resolve on disk, does a real MCP client handshake against
+the `omm-state` server (not just a process-alive check), and confirms all 8
+skills are visible via `muse skills list`. It prints one line per check and
+exits non-zero naming the failed check(s) if anything is wrong.
 
-As a secondary manual check, you can also confirm the skills installed
-directly:
+As a secondary manual check, you can also confirm the skills installed directly:
 
 ```bash
 muse skills list --source user
@@ -203,19 +223,19 @@ repository secret.
 
 ## Skills
 
-Eight skills, installed user-scoped on this build, **explicit-invocation
-only** — muse never auto-fires a skill:
+Eight skills, installed user-scoped on this build, **explicit-invocation only**
+— muse never auto-fires a skill:
 
-| Skill | What it does |
-|---|---|
-| `deep-interview` | Socratic interview gated by a measured ambiguity score, producing an approved spec |
-| `deep-dive` | Two-stage front door: runs `trace` first, then `deep-interview` if the problem turns out to be a scope question |
-| `trace` | Root-causes a concrete symptom via parallel competing hypotheses and evidence-gatherers |
-| `ralplan` | Turns an approved spec into a consensus-reviewed PRD (`prd.json`) of testable stories |
-| `ralph` | Runs the PRD to completion: implement, verify each acceptance criterion, loop until done or blocked |
-| `team` | N persona subagents in parallel, each isolated in its own worktree, for genuinely independent work |
-| `cancel` | Ends the active pipeline stage and cleans up `.omm/` state — does not revert code |
-| `workflow` | Runs agent-authored JS in a QuickJS sandbox: `tools.*` PTC calls plus `task()` subagent fan-out |
+| Skill            | What it does                                                                                                    |
+| ---------------- | --------------------------------------------------------------------------------------------------------------- |
+| `deep-interview` | Socratic interview gated by a measured ambiguity score, producing an approved spec                              |
+| `deep-dive`      | Two-stage front door: runs `trace` first, then `deep-interview` if the problem turns out to be a scope question |
+| `trace`          | Root-causes a concrete symptom via parallel competing hypotheses and evidence-gatherers                         |
+| `ralplan`        | Turns an approved spec into a consensus-reviewed PRD (`prd.json`) of testable stories                           |
+| `ralph`          | Runs the PRD to completion: implement, verify each acceptance criterion, loop until done or blocked             |
+| `team`           | N persona subagents in parallel, each isolated in its own worktree, for genuinely independent work              |
+| `cancel`         | Ends the active pipeline stage and cleans up `.omm/` state — does not revert code                               |
+| `workflow`       | Runs agent-authored JS in a QuickJS sandbox: `tools.*` PTC calls plus `task()` subagent fan-out                 |
 
 ## Personas
 
@@ -226,61 +246,61 @@ Ten personas (`executor`, `planner`, `architect`, `critic`, `explore`,
 
 These are **not muse Agent Definitions** — muse rejects `agents` as a plugin
 capability (a Claude-family plugin declaring it gets
-`unsupported-agent-schema`/`agent-overlay-inactive`, and the definitions
-never activate), so there is no route to register them as first-class agent
-types. `scripts/verify-manifest.mjs` fails the build if the plugin manifest
-ever tries to declare `agents` anyway.
+`unsupported-agent-schema`/`agent-overlay-inactive`, and the definitions never
+activate), so there is no route to register them as first-class agent types.
+`scripts/verify-manifest.mjs` fails the build if the plugin manifest ever tries
+to declare `agents` anyway.
 
 Instead, the bundled `omm-state` MCP server exposes `persona_list` and
-`persona_render` tools: `persona_list` returns every persona id with its
-routing description; `persona_render(id)` returns that persona's `SOUL.md`
-text plus its narrowed tool allowlist from `personas/manifest.json`, ready
-to interpolate into a `subagent_spawn(role, objective, worktree_isolation)`
-call. A skill calls `persona_list` to pick the right persona, then
-`persona_render` to pull its prompt text and tool allowlist into the
-objective it hands to `subagent_spawn` — the narrowing is advisory and the
-caller applies it, since muse has no first-class concept of a persona's
-tool scope.
+`persona_render` tools: `persona_list` returns every persona id with its routing
+description; `persona_render(id)` returns that persona's `SOUL.md` text plus its
+narrowed tool allowlist from `personas/manifest.json`, ready to interpolate into
+a `subagent_spawn(role, objective, worktree_isolation)` call. A skill calls
+`persona_list` to pick the right persona, then `persona_render` to pull its
+prompt text and tool allowlist into the objective it hands to `subagent_spawn` —
+the narrowing is advisory and the caller applies it, since muse has no
+first-class concept of a persona's tool scope.
 
 ## State
 
-Runtime state lives under `.omm/` at the workspace root
-(`.omm/specs/`, `.omm/state/`), never under `.agents/` or `.muse/`.
+Runtime state lives under `.omm/` at the workspace root (`.omm/specs/`,
+`.omm/state/`), never under `.agents/` or `.muse/`.
 
 Those two paths are **muse-protected**: a mediated `edit_file`/`write_file`
-write there is held for human review with no standing grant, and a shell
-write fails read-only at the sandbox. `.omm/` is ordinary, unprotected
-workspace state, so hooks and the bundled MCP state server can read and write
-it freely — `src/paths.ts` is the single place that enforces this boundary
-and refuses any write that resolves into `.agents/`, `.muse/`, or `.git/`.
+write there is held for human review with no standing grant, and a shell write
+fails read-only at the sandbox. `.omm/` is ordinary, unprotected workspace
+state, so hooks and the bundled MCP state server can read and write it freely —
+`src/paths.ts` is the single place that enforces this boundary and refuses any
+write that resolves into `.agents/`, `.muse/`, or `.git/`.
 
 ## External critic
 
 `ralplan` and `ralph` both accept `--critic codex` (or `--critic claude`) to
-route consensus review and final verification through an external CLI
-process instead of the in-process `critic`/`verifier` personas.
+route consensus review and final verification through an external CLI process
+instead of the in-process `critic`/`verifier` personas.
 
 This buys genuine cross-model adversarial review, at two real costs, stated
 plainly rather than soft-pedaled:
 
-1. **It's session-wide, not scoped to the critic call.** muse 1.0.3 has no
-   named permission profile to escalate just the critic — `--permission-profile
+1. **It's session-wide, not scoped to the critic call.** muse 1.0.3 has no named
+   permission profile to escalate just the critic —
+   `--permission-profile
    <id>` reports the profile does not exist, and
-   `execution.permission_profiles` validates as `field_not_activated`. The
-   only route is launching the **entire session** with `muse
-   --disable-sandbox` (or `--yolo`), which removes filesystem and network
-   sandboxing for everything in that session, not just the one process that
-   needed it.
-2. **The external critic's work falls outside Muse's append-only audit
-   trail.** Its reasoning and any files it touches are not captured the way
-   an in-session `subagent_spawn` result is — `muse export` will show that
-   `ralph`/`ralplan` invoked it, not what it did internally.
+   `execution.permission_profiles` validates as `field_not_activated`. The only
+   route is launching the **entire session** with `muse
+   --disable-sandbox`
+   (or `--yolo`), which removes filesystem and network sandboxing for everything
+   in that session, not just the one process that needed it.
+2. **The external critic's work falls outside Muse's append-only audit trail.**
+   Its reasoning and any files it touches are not captured the way an in-session
+   `subagent_spawn` result is — `muse export` will show that `ralph`/`ralplan`
+   invoked it, not what it did internally.
 
 If an enterprise policy sets `execution.forbid_sandbox_bypass`, both
-`--disable-sandbox` and `--yolo` are refused outright and the external
-critic cannot run at all; `scripts/install.mjs` checks for this at install
-time, and `ralph`/`ralplan` check it again at run time rather than silently
-falling back to the in-process critic.
+`--disable-sandbox` and `--yolo` are refused outright and the external critic
+cannot run at all; `scripts/install.mjs` checks for this at install time, and
+`ralph`/`ralplan` check it again at run time rather than silently falling back
+to the in-process critic.
 
 ## Development
 
@@ -304,13 +324,15 @@ npm run verify:skills  # validates all 8 skills against the muse binary, failing
 
 ## Credits and license
 
-oh-my-musecode is a port of [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode)
-(MIT, Copyright (c) 2025 Yeachan Heo) to Meta's Muse Code CLI. The pipeline shape
-— `deep-interview` → `ralplan` → `ralph`, plus `deep-dive`/`trace`, `team` and
+oh-my-musecode is a port of
+[oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode) (MIT,
+Copyright (c) 2025 Yeachan Heo) to Meta's Muse Code CLI. The pipeline shape —
+`deep-interview` → `ralplan` → `ralph`, plus `deep-dive`/`trace`, `team` and
 `cancel` — and the PRD-driven persistence loop come from that project. The skill
 bodies, personas, hooks, MCP server and installer here were rewritten against
 muse's own contracts, because muse's frontmatter subset, invoke-only skills,
-protected paths and plugin capability rules differ substantially from Claude Code's.
+protected paths and plugin capability rules differ substantially from Claude
+Code's.
 
 The persona model follows the Hermes profile pattern documented in Meta's
 [meta-model-cookbook](https://github.com/meta-llama/meta-model-cookbook): a
