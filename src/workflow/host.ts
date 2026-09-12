@@ -1,22 +1,32 @@
 /**
  * Workflow host adapter: the seam between interpreter `task()` dispatches and
- * the native Workflow UI.
+ * a native Workflow UI.
  *
  * Every dispatch becomes a run with started/progress/completed lifecycle
- * events, which is what surfaces in `/workflows` as live progress. Host
+ * events, which is what a `/workflows` view consumes as live progress —
+ * where the install provides one. Native workflow availability is gated by
+ * muse's per-install feature config (`workflow_tool`; verified true on Muse
+ * 1.1.1-R2514.1 aarch64, with `workflow_api_v2_rollout` still false), and
+ * installs compiled without the script engine say so at launch. This host
+ * is the library-side seam regardless: hosts without the native plane
+ * surface this event stream through their own adapters. Host
  * cancel and restart signals propagate into the running dispatch: cancel
  * terminates it, restart re-executes the dispatcher and emits a second
  * started event for the same run id.
  */
 
-import type { SubagentDispatcher, WorkflowEvent, WorkflowEventType } from './types.js';
+import type {
+  SubagentDispatcher,
+  WorkflowEvent,
+  WorkflowEventType,
+} from "./types.js";
 
 export class WorkflowCancelledError extends Error {
   readonly runId: string;
 
   constructor(runId: string) {
     super(`Workflow run ${runId} was cancelled.`);
-    this.name = 'WorkflowCancelledError';
+    this.name = "WorkflowCancelledError";
     this.runId = runId;
   }
 }
@@ -26,10 +36,10 @@ interface RunState {
 }
 
 type AttemptOutcome =
-  | { status: 'ok'; output: string }
-  | { status: 'cancelled' }
-  | { status: 'restart' }
-  | { status: 'failed'; error: unknown };
+  | { status: "ok"; output: string }
+  | { status: "cancelled" }
+  | { status: "restart" }
+  | { status: "failed"; error: unknown };
 
 export interface RunRequest {
   description: string;
@@ -79,7 +89,10 @@ export class WorkflowHost {
    * restart aborts the current attempt and re-runs the dispatcher; a host
    * cancel aborts it with a WorkflowCancelledError.
    */
-  async run(request: RunRequest, dispatcher: SubagentDispatcher): Promise<string> {
+  async run(
+    request: RunRequest,
+    dispatcher: SubagentDispatcher,
+  ): Promise<string> {
     const runId = `run-${++this.nextId}`;
     const state: RunState = { controller: new AbortController() };
     this.runs.set(runId, state);
@@ -87,28 +100,30 @@ export class WorkflowHost {
       let attempt = 0;
       for (;;) {
         attempt += 1;
-        this.emit('started', runId, attempt, request);
-        const outcome = await this.raceAttempt(state.controller.signal, (signal) =>
-          dispatcher({
-            ...request,
-            runId,
-            attempt,
-            signal,
-          }),
+        this.emit("started", runId, attempt, request);
+        const outcome = await this.raceAttempt(
+          state.controller.signal,
+          (signal) =>
+            dispatcher({
+              ...request,
+              runId,
+              attempt,
+              signal,
+            }),
         );
         switch (outcome.status) {
-          case 'restart':
+          case "restart":
             continue;
-          case 'cancelled':
-            this.emit('cancelled', runId, attempt, request);
+          case "cancelled":
+            this.emit("cancelled", runId, attempt, request);
             throw new WorkflowCancelledError(runId);
-          case 'failed':
+          case "failed":
             throw outcome.error;
-          case 'ok':
-            this.emit('progress', runId, attempt, request, {
+          case "ok":
+            this.emit("progress", runId, attempt, request, {
               outputLength: outcome.output.length,
             });
-            this.emit('completed', runId, attempt, request, {
+            this.emit("completed", runId, attempt, request, {
               outputLength: outcome.output.length,
             });
             return outcome.output;
@@ -123,7 +138,7 @@ export class WorkflowHost {
   cancel(runId: string): boolean {
     const state = this.runs.get(runId);
     if (!state) return false;
-    state.controller.abort('cancelled');
+    state.controller.abort("cancelled");
     return true;
   }
 
@@ -131,7 +146,7 @@ export class WorkflowHost {
   restart(runId: string): boolean {
     const state = this.runs.get(runId);
     if (!state) return false;
-    state.controller.abort('restart');
+    state.controller.abort("restart");
     state.controller = new AbortController();
     return true;
   }
@@ -150,32 +165,32 @@ export class WorkflowHost {
     try {
       pending = work(signal);
     } catch (error: unknown) {
-      return Promise.resolve({ status: 'failed', error });
+      return Promise.resolve({ status: "failed", error });
     }
     return new Promise((resolve) => {
       const onAbort = (): void => {
         resolve({ status: this.abortStatus(signal.reason) });
       };
-      signal.addEventListener('abort', onAbort, { once: true });
+      signal.addEventListener("abort", onAbort, { once: true });
       pending.then(
         (output) => {
-          signal.removeEventListener('abort', onAbort);
-          resolve({ status: 'ok', output });
+          signal.removeEventListener("abort", onAbort);
+          resolve({ status: "ok", output });
         },
         (error: unknown) => {
           // A dispatcher failure is terminal for this attempt: the original
           // error propagates so the interpreter reports it, not a cancellation.
-          signal.removeEventListener('abort', onAbort);
-          resolve({ status: 'failed', error });
+          signal.removeEventListener("abort", onAbort);
+          resolve({ status: "failed", error });
         },
       );
     });
   }
 
-  private abortStatus(reason: unknown): 'cancelled' | 'restart' {
+  private abortStatus(reason: unknown): "cancelled" | "restart" {
     // Only cancel() and restart() abort this signal, but default unknown
     // reasons to cancelled so a stray abort can never silently re-loop as a
     // restart.
-    return reason === 'restart' ? 'restart' : 'cancelled';
+    return reason === "restart" ? "restart" : "cancelled";
   }
 }
