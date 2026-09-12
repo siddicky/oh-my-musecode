@@ -374,7 +374,7 @@ export class WorkflowInterpreter {
         context.newFunction(name, (...argHandles) => {
           beforeCall();
           const rawArgs = argHandles.length > 0 ? context.dump(argHandles[0]) : {};
-          return this.invokePtcTool(scope, context, tool, rawArgs);
+          return this.invokePtcTool(scope, context, originalName, tool, rawArgs);
         }),
       );
       context.setProp(toolsObj, name, fn);
@@ -417,10 +417,10 @@ export class WorkflowInterpreter {
         const name = argHandles.length > 0 ? context.dump(argHandles[0]) : undefined;
         const rawArgs = argHandles.length > 1 ? context.dump(argHandles[1]) : {};
         const tool = typeof name === 'string' ? resolve(name) : undefined;
-        if (!tool) {
+        if (typeof name !== 'string' || !tool) {
           throw new Error(`Unknown tool "${String(name)}": the resolver has no such tool.`);
         }
-        return this.invokePtcTool(scope, context, tool, rawArgs);
+        return this.invokePtcTool(scope, context, name, tool, rawArgs);
       }),
     );
     context.setProp(context.global, '__ptcCall', callFn);
@@ -435,11 +435,15 @@ export class WorkflowInterpreter {
 
   /**
    * Invokes one PTC tool and bridges its settlement into the sandbox,
-   * returning the in-sandbox promise handle. Shared by both PTC modes.
+   * returning the in-sandbox promise handle. Shared by both PTC modes. The
+   * call runs inside `host.runPtc`, so it emits started/completed UI rows
+   * keyed by `toolName`: the original allowlist name in guarded mode, the
+   * accessed property name in unleashed mode.
    */
   private invokePtcTool(
     scope: BridgeScope,
     context: QuickJSContext,
+    toolName: string,
     tool: PtcTool,
     rawArgs: unknown,
   ): QuickJSHandle {
@@ -448,7 +452,7 @@ export class WorkflowInterpreter {
     const deferred = context.newPromise();
     scope.session.inflight.add(deferred);
     Promise.resolve()
-      .then(() => tool(args))
+      .then(() => this.host.runPtc(toolName, async () => tool(args)))
       .then(
         (native) => {
           this.settleBridge(scope, runtime, deferred, () => {

@@ -27,5 +27,9 @@ export {
   type ToolResponse,
   type WorkflowConfig,
   type WorkflowEvent,
+  type WorkflowEventKind,
   type WorkflowEventType,
+  type WorkflowPtcEvent,
+  type WorkflowPtcEventType,
+  type WorkflowSubagentEvent,
 } from './types.js';

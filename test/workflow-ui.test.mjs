@@ -8,11 +8,14 @@ import { WorkflowInterpreter } from '../dist/workflow/interpreter.js';
  * A /workflows-style run-list projection over WorkflowHost events: the exact
  * stream a native workflow UI adapter consumes. started/progress/completed
  * must project to a consistent run list even when a fan-out mixes a clean
- * completion, a mid-flight cancel, and a restart.
+ * completion, a mid-flight cancel, and a restart. The projection narrows on
+ * kind:'subagent' first, as every run-list adapter must now that PTC tool
+ * rows share the stream.
  */
 function projectRunList(events) {
   const runs = new Map();
   for (const event of events) {
+    if (event.kind !== 'subagent') continue;
     let run = runs.get(event.runId);
     if (!run) {
       run = {

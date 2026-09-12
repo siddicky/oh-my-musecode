@@ -56,7 +56,15 @@ export type SubagentDispatcher = (dispatch: SubagentDispatch) => Promise<string>
 
 export type WorkflowEventType = 'started' | 'progress' | 'completed' | 'cancelled';
 
-export interface WorkflowEvent {
+/**
+ * Which bridge produced the event: a `task()` subagent dispatch or a PTC
+ * tool call. UI adapters filter on this before projecting run lists.
+ */
+export type WorkflowEventKind = 'subagent' | 'ptc';
+
+/** Lifecycle of one `task()` subagent dispatch, as a workflow UI run row. */
+export interface WorkflowSubagentEvent {
+  kind: 'subagent';
   type: WorkflowEventType;
   runId: string;
   attempt: number;
@@ -67,6 +75,31 @@ export interface WorkflowEvent {
   outputLength?: number;
   error?: string;
 }
+
+/** PTC tool calls are single-shot: one started event, then completed on success. */
+export type WorkflowPtcEventType = 'started' | 'completed';
+
+export interface WorkflowPtcEvent {
+  kind: 'ptc';
+  type: WorkflowPtcEventType;
+  /** `ptc-N` from a host-local counter; never collides with `run-N` ids. */
+  toolCallId: string;
+  /**
+   * Guarded mode: the original allowlist name (`web_search`). Unleashed
+   * mode: the exact property name accessed on `tools`.
+   */
+  tool: string;
+  /** Length of the JSON-encoded tool result. Absent when unserializable. */
+  outputLength?: number;
+  error?: string;
+}
+
+/**
+ * One row in the UI event stream. A throwing tool emits no terminal event —
+ * mirroring a failed subagent dispatch — and refused calls (un-allowlisted,
+ * cap-exceeded) emit nothing at all: refusal is the thrown error, never a row.
+ */
+export type WorkflowEvent = WorkflowSubagentEvent | WorkflowPtcEvent;
 
 export interface WorkflowConfig {
   memoryLimitBytes: number;
