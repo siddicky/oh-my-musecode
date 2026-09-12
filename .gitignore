@@ -3,3 +3,4 @@ dist/
 .omm/
 .omc/
 *.log
+.omo/
