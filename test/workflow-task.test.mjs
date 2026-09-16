@@ -250,3 +250,31 @@ test('a host cancel terminates the running dispatch', async () => {
     interpreter.disposeAll();
   }
 });
+
+test('in-script catch sees a cancellation as a named Error with a message', async () => {
+  const host = new WorkflowHost();
+  const interpreter = new WorkflowInterpreter({
+    subagentMap: { worker: { model: 'm', effort: 'e' } },
+    dispatcher: () => new Promise(() => {}),
+    host,
+  });
+  try {
+    const pending = interpreter.evaluate(
+      'us004-cancel-catch',
+      `let caught = 'no throw';
+       try { await task({ description: 'work', subagentType: 'worker' }); }
+       catch (e) { caught = JSON.stringify({ isError: e instanceof Error, name: e.name, message: e.message }); }
+       caught;`,
+    );
+    const started = await waitFor(host.events, (e) => e.type === 'started');
+    assert.ok(host.cancel(started.runId), 'cancel should hit the running dispatch');
+    const response = await pending;
+    assert.equal(response.ok, true);
+    const caught = JSON.parse(response.result);
+    assert.equal(caught.isError, true);
+    assert.equal(caught.name, 'WorkflowCancelledError');
+    assert.match(caught.message, /was cancelled/);
+  } finally {
+    interpreter.disposeAll();
+  }
+});
