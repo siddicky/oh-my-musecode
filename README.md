@@ -177,13 +177,18 @@ alongside it only for Claude-family tooling compatibility.
 ### Uninstalling
 
 ```bash
-npx -y @siddicky/oh-my-musecode uninstall            # removes our hooks/mcp entries from settings.json, deletes the installed stable home
+npx -y @siddicky/oh-my-musecode uninstall            # removes the installed plugin record (and any settings-route entries)
 npx -y @siddicky/oh-my-musecode uninstall --purge     # also removes the installed skills
 ```
 
-`uninstall` preserves every other value in `settings.json` exactly (the document
-is re-serialized as 2-space JSON, so exact original formatting/key order is not
-literally preserved, only the values).
+On Muse 1.3.0 `uninstall` removes the `oh-my-musecode` plugin record from
+Muse's plugin store, then still cleans any settings-route entries (a machine
+upgraded from a plugins-off build can have both); running it twice exits
+clean. On builds without plugin support it removes the hooks/mcp entries
+from `settings.json` and deletes the installed stable home, preserving every
+other value in `settings.json` exactly (the document is re-serialized as
+2-space JSON, so exact original formatting/key order is not literally
+preserved, only the values).
 
 ### Verifying
 
@@ -191,12 +196,17 @@ literally preserved, only the values).
 npx -y @siddicky/oh-my-musecode doctor
 ```
 
-`doctor` is the documented way to verify an install. It re-reads the actual
-installed `settings.json`, confirms the 3 hooks (`SessionStart`, `Stop`,
-`UserPromptSubmit`) resolve on disk, does a real MCP client handshake against
-the `omm-state` server (not just a process-alive check), and confirms all 8
-skills are visible via `muse skills list`. It prints one line per check and
-exits non-zero naming the failed check(s) if anything is wrong.
+`doctor` is the documented way to verify an install. It prints one line per
+check and exits non-zero naming the failed check(s) if anything is wrong.
+On Muse 1.3.0 it checks the marketplace route: the plugin record is
+installed and enabled, `inspect` reports it valid and active at the installed
+version, all 8 skills are visible via `muse skills list --source plugin`,
+and the `omm-state` server cached with the bundle answers a real MCP client
+handshake (not just a process-alive check). On builds without plugin support
+it instead re-reads the actual installed `settings.json`, confirms the 3
+hooks (`SessionStart`, `Stop`, `UserPromptSubmit`) resolve inside the
+verified stable home, handshakes the configured server, and confirms the 8
+user-scope skills.
 
 As a secondary manual check, you can also confirm the skills installed directly:
 
@@ -327,6 +337,7 @@ node scripts/install.mjs uninstall --purge                        # remove
 npm test           # build + node --test over test/**/*.test.mjs
 npm run lint        # verify-manifest.mjs + tsc --noEmit
 npm run verify:skills  # validates all 8 skills against the muse binary, failing on any inert frontmatter key
+bash scripts/e2e-1.3.0.sh  # sandbox E2E vs the real binary: marketplace install → doctor → headless exec + hook fire → uninstall (skips without muse)
 ```
 
 ## Credits and license

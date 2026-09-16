@@ -1,6 +1,6 @@
 {
   "name": "oh-my-musecode",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "An OMC-shaped delivery harness for Meta Muse Code: deep-interview -> ralplan -> ralph, plus deep-dive/trace, team and cancel. Personas are rendered into subagent prompts rather than declared as agent definitions (the 1.3.0 `--agents` overlay was explicitly not integrated, see the US-005 verdict in src/personas.ts).",
   "capabilities": {
     "skills": [

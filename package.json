@@ -1,6 +1,6 @@
 {
   "name": "@siddicky/oh-my-musecode",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "An OMC-shaped delivery harness for Meta Muse Code: deep-interview -> ralplan -> ralph, plus deep-dive/trace, team and cancel.",
   "type": "module",
   "license": "MIT",
