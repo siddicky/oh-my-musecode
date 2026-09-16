@@ -5,7 +5,7 @@
 | **Section** | Muse Code plugin |
 | **Time to complete** | ~45 min |
 | **Model** | `meta` provider (any Meta model muse is configured for) |
-| **Harness** | Muse Code (the `muse` CLI, 1.0.3) |
+| **Harness** | Muse Code (the `muse` CLI, 1.3.0-R3057.1) |
 | **Prerequisites** | Node.js >= 20, `muse` on `PATH`, a workspace you can trust |
 
 ## Summary
@@ -21,12 +21,16 @@ no `pipeline` or `next-skill` field to read. Each skill's own body tells the
 user, in prose, what to run next.
 
 The repo ships a native `.muse-plugin/plugin.json` manifest, correct per
-muse's own documented plugin contract — but muse 1.0.3-R2198.1's plugins
-subsystem is disabled outright (`muse plugins --help` answers "plugins are
-not available in this build"), so on this build the manifest is inert and
-delivery goes through `muse skills install`, a `hooks` entry, and an
-`mcpServers` entry in `settings.json` instead. See Orchestration contract
-and step 1 below for exactly which route runs today.
+muse's own documented plugin contract. On builds through 1.1.1 the plugins
+subsystem was disabled outright, so the manifest was inert and delivery went
+through `muse skills install`, a `hooks` entry, and an `mcpServers` entry in
+`settings.json` instead. On Muse 1.3.0-R3057.1 (`plugins: true` in the
+feature config) the manifest delivers via the marketplace plugin route. See
+Orchestration contract and step 1 below for exactly which route runs today. The committed
+live-binary probe evidence (per-flag statements, feature gates, validate and
+install shapes, sandbox E2E design) lives in
+[`live-probes-1.3.0.md`](live-probes-1.3.0.md), including the explicit
+unresolved-items list.
 
 This recipe walks the repo's own acceptance run: installing it, then driving
 `/deep-interview → /ralplan --critic codex → /ralph --critic codex` against
@@ -59,11 +63,11 @@ hand-written `prd.json`.
 | Skill catalog stays cheap | Skills load as summaries at session open; `read_skill`/invocation pulls the full `SKILL.md` for one turn only |
 | Skills never self-trigger | Explicit-invocation only — no `triggers` field exists in Muse's skill frontmatter subset (`name`, `description`, `allowed-tools`); each `SKILL.md` body says so in prose |
 | Pipeline sequencing | No `next-skill`/`handoff`/`pipeline` frontmatter field exists on Muse. Each skill's body tells the user in prose what to run next (`deep-interview` → "run `/ralplan`"; `ralplan` → "run `/ralph`") |
-| Personas | Ten `SOUL.md` files, pulled in via the `omm-state` MCP server's `persona_list`/`persona_render` tools and interpolated into `subagent_spawn(role, objective, worktree_isolation)` prompt text — not muse Agent Definitions. A Claude-family plugin declaring `agents` gets `unsupported-agent-schema`/`agent-overlay-inactive`, so there is no route to register personas as first-class agent types |
+| Personas | Ten `SOUL.md` files, pulled in via the `omm-state` MCP server's `persona_list`/`persona_render` tools and interpolated into `subagent_spawn(role, objective, worktree_isolation)` prompt text — not muse Agent Definitions. On builds through 1.1.1 a Claude-family plugin declaring `agents` got `unsupported-agent-schema`/`agent-overlay-inactive`; on 1.3.0 the `--agents` overlay flag exists but was explicitly not integrated (see the US-005 verdict in `src/personas.ts`) |
 | Parallel work isolation | `team` and multi-story `ralph` runs pass `worktree_isolation: true` to `subagent_spawn`, landing each child in its own `.muse/worktrees/` checkout |
 | Runtime state | `.omm/` at the workspace root — `.agents/` and `.muse/` are muse-protected: a mediated `edit_file` write there is held for human review with no standing grant, and a shell write fails read-only at the sandbox |
 | Keyword routing / bootstrap / verification gate | `UserPromptSubmit`, `SessionStart`, and `Stop` hooks (`hooks/hooks.json`, `hooks/*.mjs`) restore what inert frontmatter cannot do |
-| Delivery on this build | `muse plugins` is disabled entirely on 1.0.3-R2198.1 ("plugins are not available in this build"), so `scripts/install.mjs` runs `muse skills install --scope user` per skill and merges `hooks`/`mcpServers` into `$CONFIG_DIR/muse/settings.json`. The repo also ships a native `.muse-plugin/plugin.json`, forward-looking for a build with plugins enabled — inert today; there is no `muse plugin install` command on any build |
+| Delivery on this build | On Muse 1.3.0-R3057.1 `muse plugins` is fully managed (`install`, `list`, `inspect`, `approve`, `validate`, `marketplace`), so `scripts/install.mjs` registers the marketplace entry and approves/enables it. On builds through 1.1.1, where `muse plugins` reported the subsystem as unavailable, the installer fell back to `muse skills install --scope user` per skill plus a `hooks`/`mcpServers` merge into `$CONFIG_DIR/muse/settings.json` |
 
 ## Walkthrough: the self-hosting acceptance run
 
@@ -77,19 +81,22 @@ node scripts/install.mjs install --workspace /path/to/oh-my-musecode --dry-run
 ```
 
 `--dry-run` prints what the installer would do without touching disk. It
-first probes `muse plugins --help`: on 1.0.3-R2198.1 that answers "plugins
-are not available in this build", so the installer takes the settings route
-instead of writing a plugin marketplace entry that muse would silently
-never load. Drop `--dry-run` to install for real. For this self-hosting run,
-the target workspace is this repo itself:
+first probes `muse plugins --help`: on 1.3.0-R3057.1 that lists the full
+management surface, so the installer takes the marketplace route. (On builds
+through 1.1.1 the probe reported the subsystem as unavailable, so the
+installer took the settings route instead of writing a plugin marketplace
+entry that muse would silently never load.) Drop `--dry-run` to install for
+real. For this self-hosting run, the target workspace is this repo itself:
 
 ```bash
 node scripts/install.mjs install --workspace .
 ```
 
-This runs three routes, each verified to work on 1.0.3-R2198.1:
+On Muse 1.3.0-R3057.1 this runs the marketplace route: the installer registers
+the plugin marketplace entry and approves/enables it. On builds through 1.1.1
+it ran three fallback routes instead:
 
-1. `muse skills install <dir> --scope user --force` for each of the 7
+1. `muse skills install <dir> --scope user --force` for each of the 8
    skills, landing in `$CONFIG_DIR/skills/`.
 2. A `hooks` entry merged into `$CONFIG_DIR/muse/settings.json` (a
    SessionStart hook installed this way is what creates `.omm/`).
@@ -99,8 +106,11 @@ This runs three routes, each verified to work on 1.0.3-R2198.1:
 
 The installer also runs an escalation preflight against the local `muse`
 build and prints, plainly, whether named permission profiles are available.
-On muse 1.0.3 they are not — read the "External critic posture" section it
-prints; the rest of this walkthrough depends on it.
+On Muse 1.3.0-R3057.1 the `--permission-profile` flag exists but no profile
+is defined by default (the probe reports `profile does not exist`), so unless
+a profile has been defined via enterprise config, scoping is unavailable —
+read the "External critic posture" section it prints; the rest of this
+walkthrough depends on it.
 
 ### 2. Confirm the install and start a session
 
@@ -218,11 +228,12 @@ perform, it does not claim the run has happened.
 
 **Skills installed at the wrong scope, or plugins assumed to be on.** These
 skills are installed with `--scope user`, into `$CONFIG_DIR/skills/`, not as
-a workspace plugin — `muse plugins` is disabled on this build, so a
-registered plugin marketplace loads nothing (`muse skills list --source
+a workspace plugin — on builds through 1.1.1 `muse plugins` was disabled, so a
+registered plugin marketplace loaded nothing (`muse skills list --source
 plugin --json` → `{"skills":[],"diagnostics":[]}`, silently, with no
-diagnostic pointing at the cause). Confirm the real install with `muse
-skills list --source user` instead. The hooks and `omm-state` MCP server
+diagnostic pointing at the cause). On Muse 1.3.0-R3057.1 the marketplace route
+is primary; confirm the install with `muse plugins list` and `muse skills
+list --source user` for the fallback routes. The hooks and `omm-state` MCP server
 delivered via `$CONFIG_DIR/muse/settings.json` still only run inside an
 actual `muse` session — launch with `muse --trust-workspace` (or `--yolo`)
 before expecting the `SessionStart` bootstrap or `UserPromptSubmit` routing
@@ -235,12 +246,13 @@ install time and refuses to install rather than delivering a skill set whose
 `--critic codex`/`--critic claude` paths cannot work; `ralph` and `ralplan`
 check it again at run time and fail with a named-policy error rather than
 silently falling back to the in-process critic and reporting as if the
-external review ran. There is no narrower escalation route on muse 1.0.3 —
-named permission profiles are not creatable on this build
-(`execution.permission_profiles` validates `field_not_activated`, and
-`muse exec --permission-profile <id>` reports the profile does not exist) — so
-under this policy, the external-critic option is simply unavailable; use the
-in-process `critic`/`verifier` personas instead.
+external review ran. On Muse 1.3.0-R3057.1 the `--permission-profile` flag is
+real, but no profile is defined by default (an undefined id reports `profile
+does not exist`) and the enterprise-config shape that defines one is
+unconfirmed — so unless the session already has a usable profile, there is no
+narrower escalation route and, under this policy, the external-critic option
+is simply unavailable; use the in-process `critic`/`verifier` personas
+instead. (On builds through 1.1.1 named profiles were not creatable at all.)
 
 **Headless `muse exec` can't answer approval prompts.** Running any of these
 skills under `muse exec` (rather than the interactive TUI) with the default

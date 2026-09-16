@@ -1,10 +1,13 @@
 /**
  * Delivery through muse settings, for builds where the plugins subsystem is off.
  *
- * muse 1.0.3-R2198.1 answers "plugins are not available in this build" to every
- * `muse plugins` command, and a registered marketplace yields
- * `{"skills":[],"diagnostics":[]}` — no discovery and no error. A plugin manifest
- * alone therefore delivers nothing at all on this build.
+ * Historical note (builds through 1.1.1): those builds reported the plugins
+ * subsystem as unavailable to every `muse plugins` command, and a registered
+ * marketplace yielded `{"skills":[],"diagnostics":[]}` — no discovery and no
+ * error. A plugin manifest alone therefore delivered nothing at all there.
+ * On Muse 1.3.0-R3057.1 the plugins subsystem is on and the marketplace route
+ * is primary (see scripts/install.mjs); this settings route remains as the
+ * fallback for builds without plugin support.
  *
  * These routes were each verified to work instead:
  *   - skills: `muse skills install --scope user` installs into $CONFIG_DIR/skills/

@@ -77,10 +77,11 @@ the code:
      `--disable-sandbox` removes filesystem and network sandboxing for
      everything in that session, not just the one process that needed it.
 
-  There is no narrower route on this build: muse 1.0.3 exposes no way to
-  create a named permission profile (`muse exec --permission-profile <id>`
-  reports `profile does not exist`, and `execution.permission_profiles`
-  validates as `field_not_activated`). So the broad carve-out is the whole
+  On Muse 1.3.0-R3057.1 the `--permission-profile` flag exists, but no
+  profile is defined by default (`muse exec --permission-profile <id>`
+  reports `profile does not exist` for an undefined id) and the
+  enterprise-config shape that defines one is unconfirmed. So unless the
+  session already has a usable profile, the broad carve-out is the whole
   cost of the external critic, not an implementation shortcut. This is a
   deliberate, user-reaffirmed tradeoff — it buys genuine cross-model
   adversarial review — but say as much in the final report rather than

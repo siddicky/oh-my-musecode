@@ -6,9 +6,12 @@
  * NATIVE Workflow tool, so the same capability model runs on the host's own
  * engine instead of (or alongside) the embedded QuickJS runtime.
  *
- * Contract encoded here was verified against a real run on Muse Code
- * 1.1.1-R2514.1 (aarch64-apple-darwin) whose feature config reports
- * `workflow_tool: true` and `workflow_api_v2_rollout: false`:
+ * Supported build: Muse Code 1.3.0-R3057.1 (aarch64-apple-darwin), whose
+ * feature config reports `plugins: true`, `workflow_tool: true`, and
+ * `workflow_api_v2_rollout: false` (captured in docs/live-probes-1.3.0.md).
+ * The contract below was verified against
+ * a real run on the 1.1.1 build; re-verification on 1.3.0 runs with the
+ * schema/headless probes (see US-006):
  *
  * - The native `workflow` tool takes `{ script }`; the script is a JavaScript
  *   module `export default async function workflow(host) { ... }` (a

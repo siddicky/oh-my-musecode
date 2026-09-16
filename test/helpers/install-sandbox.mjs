@@ -5,7 +5,7 @@
  * XDG_CONFIG_HOME and workspace, cleaned up afterward — never the developer's
  * real ~/.config/muse. An earlier version of this file did not isolate this
  * way, so running `npm test` silently installed the plugin into the
- * developer's real muse config — seven skills plus hooks and an MCP server.
+ * developer's real muse config — eight skills plus hooks and an MCP server.
  * A test suite that mutates the machine it runs on is a defect, so
  * `runInstaller` refuses to run without an isolated config dir.
  */

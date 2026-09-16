@@ -1,0 +1,8 @@
+{"schemaVersion": 1, "name": "diff-accepted", "displayName": "diff accepted", "version": "0.0.1",
+ "description": "ACCEPTED fixture: PostToolUseFailure hook must pass the gate.",
+ "compat": {"source": "native", "manifestDir": ".muse-plugin"},
+ "capabilities": {
+   "skills": [{"id": "s1", "path": "skills/s1/SKILL.md", "enabledDefault": true}],
+   "commands": [],
+   "hooks": [{"id": "h-fail", "event": "PostToolUseFailure", "command": ["node", "hooks/a.mjs"], "timeoutMs": 5000, "statusMessage": "x"}],
+   "mcpServers": [], "reminders": []}}

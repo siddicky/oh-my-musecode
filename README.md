@@ -3,16 +3,20 @@
 An OMC-shaped delivery harness for
 [Meta Muse Code](https://dev.meta.ai/docs/cookbook#building-with-muse-code) (the
 `muse` CLI): a gated pipeline from a vague request to verified working code. It
-ships a native Muse plugin manifest, but Muse 1.1.1 reports that plugins are
-unavailable in this build. The npm installer handles that limitation by using
-`muse skills install` plus a `settings.json` merge instead. See Install below.
+ships a native Muse plugin manifest. On Muse 1.3.0-R3057.1 plugins are enabled
+and the npm installer uses the marketplace plugin route, falling back to
+`muse skills install` plus a `settings.json` merge on builds without plugin
+support (builds through 1.1.1 reported plugins as unavailable). See Install below.
 
 It ports oh-my-claudecode's Tier-0 pipeline —
 `deep-interview → deep-dive/trace
 → ralplan → ralph`, plus `team` and `cancel` —
 onto `muse`, respecting Muse's approval/sandbox/trust/audit model instead of
 working around it. See [`docs/recipe.md`](docs/recipe.md) for the full
-walkthrough and acceptance run.
+walkthrough and acceptance run, and
+[`docs/live-probes-1.3.0.md`](docs/live-probes-1.3.0.md) for the committed
+live-binary probe evidence (flags, gates, validate shapes) plus the explicit
+unresolved-items list.
 
 ## The pipeline
 
@@ -59,11 +63,12 @@ Two honest status notes: the runtime is library-only today — no MCP tool or CL
 verb wires it up yet, so hosts embed it via `createWorkflowTool` (see
 `examples/`). And native workflow availability in Muse itself is rollout-gated
 per install, not per platform: muse's feature config on this machine
-(`~/.local/share/muse/feature-config/`) reports `workflow_tool: true` and
-`workflow_api_v2_rollout: false` (with `plugins: false`), and Muse Code
-1.1.1-R2514.1 on aarch64-apple-darwin demonstrably runs native workflows — a
-headless `muse exec` run whose `workflow` tool call launched a JavaScript
-workflow (host API v1), spawned child subagents, reconciled, and completed.
+(`~/.local/share/muse/feature-config/`) reports `plugins: true`,
+`workflow_tool: true`, and `workflow_api_v2_rollout: false` on Muse Code
+1.3.0-R3057.1 (aarch64-apple-darwin) — a headless `muse exec` run whose
+`workflow` tool call launched a JavaScript workflow (host API v1), spawned
+child subagents, reconciled, and completed was demonstrated on the 1.1.1
+build; re-verification on 1.3.0 runs with the schema/headless probes.
 Earlier note that this artifact omits the workflow engine was wrong; builds
 genuinely compiled without the script engine say so plainly at launch time.
 Under `run.workflow_trigger_mode: "explicit"` the native tool fires only on the
@@ -104,10 +109,11 @@ You need Node.js 20 or newer and the `muse` command on your `PATH`. Run:
 npx -y @siddicky/oh-my-musecode install
 ```
 
-This is the supported npm installation path. If the installer prints
-`plugins are not available in this build`, that is a Muse build limitation, not
-an installation failure. There is no local setting that enables the plugin
-subsystem. The installer detects this response and installs the eight skills at
+This is the supported npm installation path. On Muse 1.3.0-R3057.1 the installer
+takes the marketplace plugin route. On builds through 1.1.1, where the installer
+reports the plugins subsystem as unavailable, that is a Muse build limitation, not
+an installation failure — there is no local setting that enables the plugin
+subsystem there. The installer detects this response and installs the eight skills at
 user scope, then registers the hooks and MCP server directly in Muse settings.
 
 Close and reopen Muse after installation so it reloads the settings. Then check
@@ -136,13 +142,13 @@ versioned home under the muse config directory —
 `~/.config/muse/oh-my-musecode/<version>/` when that's unset — and points
 `settings.json` there instead, so the install survives cache pruning.
 
-`install` first probes the local `muse` build: `muse plugins --help` answers
-"plugins are not available in this build" on Muse 1.1.1-R2514.1, and registering
-`.agents/plugins/marketplace.json` anyway just yields
-`muse skills list --source plugin --json` → `{"skills":[],"diagnostics":[]}` —
-no discovery, no error, nothing delivered. **There is no `muse plugin
-install`
-command on this build either.**
+`install` first probes the local `muse` build. On Muse 1.3.0-R3057.1
+`muse plugins --help` lists the full management surface (`install`, `list`,
+`inspect`, `approve`, `validate`, `marketplace`, …) and the installer registers
+the marketplace entry. On builds through 1.1.1 the probe reported the plugins
+subsystem as unavailable, and registering `.agents/plugins/marketplace.json`
+anyway just yielded `muse skills list --source plugin --json` →
+`{"skills":[],"diagnostics":[]}` — no discovery, no error, nothing delivered.
 
 When plugins are unavailable, the installer skips the plugin route and delivers
 through three routes verified to work:
@@ -163,8 +169,9 @@ install if an enterprise policy forbids the only escalation route entirely.
 The repo also ships a native `.muse-plugin/plugin.json` manifest — correct per
 muse's own documented plugin contract, and what a build with plugins _enabled_
 would load directly. `install` detects support at runtime (`pluginsSupported()`)
-and would use it automatically on such a build. On Muse 1.1.1-R2514.1 it is
-inert; do not treat it as the working install path. `.claude-plugin/` is kept
+and uses it automatically on such a build: on Muse 1.3.0-R3057.1 the manifest
+is live via the marketplace route. On builds through 1.1.1 it was inert; do not
+treat it as the working install path there. `.claude-plugin/` is kept
 alongside it only for Claude-family tooling compatibility.
 
 ### Uninstalling
@@ -282,12 +289,12 @@ instead of the in-process `critic`/`verifier` personas.
 This buys genuine cross-model adversarial review, at two real costs, stated
 plainly rather than soft-pedaled:
 
-1. **It's session-wide, not scoped to the critic call.** muse 1.0.3 has no named
-   permission profile to escalate just the critic —
-   `--permission-profile
-   <id>` reports the profile does not exist, and
-   `execution.permission_profiles` validates as `field_not_activated`. The only
-   route is launching the **entire session** with `muse
+1. **It's session-wide, not scoped to the critic call — unless a profile exists.**
+   Muse 1.3.0-R3057.1 ships a real `--permission-profile <id>` flag, but no
+   profile is defined by default (an undefined id reports `profile does not
+   exist`) and the enterprise-config shape that defines one is unconfirmed, so
+   scoping still depends on the installer's preflight result. Without a usable
+   profile, the only route is launching the **entire session** with `muse
    --disable-sandbox`
    (or `--yolo`), which removes filesystem and network sandboxing for everything
    in that session, not just the one process that needed it.

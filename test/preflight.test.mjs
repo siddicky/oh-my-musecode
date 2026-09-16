@@ -14,15 +14,23 @@ const failed = (output, status = 2) => ({ status, signal: null, output, ran: tru
 /** A process that never started (muse missing from PATH). */
 const didNotRun = { status: null, signal: null, output: 'ENOENT', ran: false };
 
-// Verbatim muse 1.0.3 output, so these fail if the CLI's wording changes.
-const PROFILE_MISSING = "Permission profile 'omm-critic' is unavailable: profile does not exist.\n";
+// Verbatim live muse output (Muse 1.3.0-R3057.1), so these fail if the CLI's
+// wording changes. PROFILE_MISSING was captured from
+// `muse exec --provider echo --permission-profile __omm_probe__ x`
+// (exit 1, message on stderr); STATUS_NO_POLICY from `muse config status`
+// (exit 0). NO_PROFILES is a historical (≤1.1.1) variant kept as a second
+// refusal shape. STATUS_POLICY_* are constructed enterprise-policy shapes,
+// not live captures (no writable policy plane was available to probe).
+const PROFILE_MISSING =
+  "Permission profile '__omm_probe__' is unavailable: profile does not exist.\n";
 const NO_PROFILES = 'Named permission profiles are unavailable: no permission profile is available.';
 
 const STATUS_NO_POLICY = `Enterprise configuration status
-Generation: sha256:927c2e7d
+Generation: sha256:ba24de6020438565ad030eb8e9fd87825ac71994a939c6903b98dee01005d176
 Sources:
   plane=defaults source_class=system_file state=absent
   plane=policy source_class=system_file state=absent
+  plane=defaults source_class=macos_managed_preferences state=absent
   plane=policy source_class=macos_managed_preferences state=absent`;
 
 const STATUS_POLICY_LOCKED = `Enterprise configuration status
@@ -61,6 +69,9 @@ test('a signal-killed probe is unknown', () => {
 });
 
 test('a clean exit with no complaint counts as available', () => {
+  // The live 1.3.0 path: `--permission-profile` is a real flag, so with a
+  // defined profile the probe exits clean (live `muse exec --provider echo x`
+  // prints `echo: x`). No usable profile is the common case, not the only one.
   assert.equal(namedProfilesAvailable(ok('echo: x\n')), 'yes');
 });
 
@@ -122,5 +133,5 @@ test('verdict permits installation on a readable, unlocked build', () => {
   });
   assert.equal(verdict.blocked, false);
   assert.equal(verdict.blockReason, null);
-  assert.ok(verdict.detail.some((line) => /unavailable on this build/.test(line)));
+  assert.ok(verdict.detail.some((line) => /no usable profile defined/.test(line)));
 });
