@@ -1,10 +1,23 @@
 /**
  * Persona loading and prompt rendering.
  *
- * muse 1.0.3 rejects `agents` as a plugin capability entirely: a Claude-family
- * plugin that declares it still loads, but the definitions are reported
- * `agent-overlay-inactive` and never activate (see scripts/verify-manifest.mjs).
- * So personas here are not muse agent definitions — they are plain data (a SOUL.md
+ * On builds through 1.1.1 muse rejected `agents` as a plugin capability: a
+ * Claude-family plugin that declared it still loaded, but the definitions were
+ * reported `agent-overlay-inactive` and never activated (see
+ * scripts/verify-manifest.mjs).
+ *
+ * US-005 verdict — `--agents` overlay explicitly NOT integrated, for three
+ * probed reasons (see docs/live-probes-1.3.0.md). First, `--agents` is
+ * session-startup CLI surface ("Session Agent Definition JSON", a JSON
+ * object): this module operates at `subagent_spawn(role, objective)` call
+ * time inside a session, and no code path here starts a session or passes
+ * CLI flags at dispatch, so there is no layer where one could consume the
+ * other. Second, declaring personas via the manifest `agents` capability is
+ * still closed: live 1.3.0 warns `unsupported-capability` ("not supported in
+ * this phase") and leaves the definitions inactive. Third, the overlay's
+ * inner schema and roster effects are unobservable headlessly, so any
+ * SOUL-to-overlay mapping would be speculation, not verified behavior.
+ * Personas therefore stay plain data (a SOUL.md
  * body plus a routing description and a narrowed toolset) that skills read and
  * interpolate into a `subagent_spawn(role, objective)` prompt at call time. This
  * module is the single place that resolves that data off disk.

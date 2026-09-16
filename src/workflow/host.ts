@@ -8,8 +8,9 @@
  * started/completed rows in their own `ptc-N` id namespace, discriminated
  * by `kind: "ptc"` so adapters can project tool activity next to run lists.
  * Native workflow availability is gated by
- * muse's per-install feature config (`workflow_tool`; verified true on Muse
- * 1.1.1-R2514.1 aarch64, with `workflow_api_v2_rollout` still false), and
+ * muse's per-install feature config (`workflow_tool`; true on Muse
+ * 1.3.0-R3057.1 aarch64, with `plugins: true` and `workflow_api_v2_rollout`
+ * still false), and
  * installs compiled without the script engine say so at launch. This host
  * is the library-side seam regardless: hosts without the native plane
  * surface this event stream through their own adapters. Host

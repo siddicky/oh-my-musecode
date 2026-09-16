@@ -72,10 +72,13 @@ Before presenting the plan, get a second opinion:
    `--disable-sandbox` removes filesystem and network sandboxing for
    everything in the session, not just the critic call.
 
-   There is no narrower route on muse 1.0.3 — named permission profiles are
-   not creatable on this build — so the broad carve-out is the actual price
-   of an external critic. State this plainly in the review summary; do not
-   soft-pedal it as equivalent to the in-process critic.
+   On Muse 1.3.0-R3057.1 the `--permission-profile` flag exists, but no
+   profile is defined by default (the probe reports `profile does not
+   exist`) and the enterprise-config shape that defines one is unconfirmed —
+   so unless the session already has a usable profile, the broad carve-out
+   is the actual price of an external critic. State this plainly in the
+   review summary; do not soft-pedal it as equivalent to the in-process
+   critic.
 3. Incorporate the critic's findings into the PRD before presenting it.
    Untestable criteria, missing stories implied by the spec, and scope the
    critic flags as unjustified should be fixed, not just noted.

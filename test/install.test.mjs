@@ -3,7 +3,7 @@
  *
  * Every invocation here MUST run against a throwaway XDG_CONFIG_HOME. An earlier
  * version of this file did not, so running `npm test` silently installed the
- * plugin into the developer's real muse config — seven skills plus hooks and an
+ * plugin into the developer's real muse config — eight skills plus hooks and an
  * MCP server. A test suite that mutates the machine it runs on is a defect, so
  * `runInstaller` refuses to run without an isolated config dir.
  */
@@ -106,10 +106,11 @@ test('escalation preflight reports the real permission-profile capability', () =
   withSandbox('install', ({ workspace, configHome }) => {
     const output = runInstaller(['install', '--workspace', workspace, '--dry-run'], { configHome }).output;
     assert.match(output, /Escalation preflight:/);
-    // muse 1.0.3 cannot create named permission profiles. If a future build can,
-    // update this deliberately rather than letting the preflight quietly start
-    // claiming a capability it never re-checked.
-    assert.match(output, /named permission profiles: unavailable on this build/);
+    // No profile is defined by default on 1.3.0 either (the live probe reports
+    // `profile does not exist`), so scoping stays unavailable. If a build ever
+    // ships a usable profile, update this deliberately rather than letting the
+    // preflight quietly start claiming a capability it never re-checked.
+    assert.match(output, /named permission profiles: no usable profile defined/);
   });
 });
 
@@ -128,7 +129,10 @@ test('installer names both costs of the external critic, not just one', () => {
   });
 });
 
-test('installer explains that plugins are off on this build', () => {
+test('installer falls back to muse settings when the build reports no plugins', () => {
+  // The default fake simulates a plugins-off (≤1.1.1) build, so this covers
+  // the legacy fallback route — not current-build behavior (see the
+  // marketplace-route suite for that).
   withSandbox('install', ({ workspace, configHome }) => {
     const output = runInstaller(['install', '--workspace', workspace, '--dry-run'], { configHome }).output;
     assert.match(output, /plugins are not available/i);
@@ -167,8 +171,8 @@ test('--help prints the bin name and all three verbs, no verb required', () => {
     const result = runInstaller(['--help'], { configHome });
     assert.equal(result.status, 0, result.output);
     assert.match(result.output, /Usage: oh-my-musecode <install\|uninstall\|doctor> \[options\]/);
-    assert.match(result.output, /install\s+Copy the harness into a stable home/);
-    assert.match(result.output, /uninstall\s+Remove muse settings entries/);
+    assert.match(result.output, /install\s+Install the harness: marketplace plugin route/);
+    assert.match(result.output, /uninstall\s+Remove the installed harness: plugin record/);
     assert.match(result.output, /doctor\s+Verify hooks resolve/);
   });
 });

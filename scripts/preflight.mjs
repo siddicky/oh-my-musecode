@@ -91,7 +91,10 @@ export function escalationVerdict({ profileProbe, configProbe }) {
 
   const describe = {
     yes: 'AVAILABLE',
-    no: 'unavailable on this build (cannot scope the escalation)',
+    // Deliberately build-agnostic: on ≤1.1.1 the mechanism did not exist, on
+    // 1.3.0 the flag is real but no profile is defined by default — either
+    // way there is no usable profile to scope the escalation to.
+    no: 'no usable profile defined (cannot scope the escalation)',
     unknown: 'UNKNOWN — could not determine (probe failed)',
   };
 

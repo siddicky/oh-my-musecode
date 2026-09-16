@@ -3,23 +3,29 @@
  * Validates the plugin manifests against muse's native plugin contract.
  *
  * muse ships the authoritative contract with its bundled `create-plugin` skill
- * (`.../skills/create-plugin/references/native-plugin-contract.md`). We cannot run
- * `muse plugins validate` because the whole plugins subsystem answers "plugins are
- * not available in this build" on 1.0.3-R2198.1 — so this script enforces the
- * documented contract locally instead, and is the closest thing to a validator the
- * build allows.
+ * (`.../skills/create-plugin/references/native-plugin-contract.md`). On builds
+ * through 1.1.1 the plugins subsystem was off, so this script enforced the
+ * documented contract locally instead. On Muse 1.3.0-R3057.1
+ * `muse plugins validate` runs, and this script's verdicts are diffed against
+ * the live binary (see test/verify-manifest-diff.test.mjs).
  *
- * The `agents` check matters most: the validator rejects that capability family,
- * and a manifest declaring it loads while its definitions stay permanently
- * inactive. Failing the build is better than shipping a roster that silently
- * never activates.
+ * Deliberate strictness, not drift: the live 1.3.0 validator is lenient where
+ * this script fails closed. A manifest declaring `agents` gets only a
+ * `unsupported-capability` warning ("not supported in this phase") while its
+ * definitions stay inactive; unknown capability fields warn `unsupported-field`
+ * ("not used by this runtime"); `tools` passes silently. This script still
+ * rejects all three, because a build gate that waves through capabilities the
+ * runtime ignores is a silent-non-delivery bug with a green badge. Failing the
+ * build is better than shipping a roster that validates yet never activates.
  */
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+// Test seam: the executable live-diff (test/verify-manifest-diff.test.mjs)
+// points this at fixture bundle roots. Production runs leave it unset.
+const ROOT = process.env.OMM_VERIFY_ROOT ?? join(dirname(fileURLToPath(import.meta.url)), '..');
 
 const ACCEPTED_CAPABILITIES = new Set([
   'skills',
@@ -35,6 +41,7 @@ const REJECTED_CAPABILITIES = new Set(['tools', 'agents', 'outputStyles', 'setti
 const HOOK_EVENTS = new Set([
   'PreToolUse',
   'PostToolUse',
+  'PostToolUseFailure',
   'UserPromptSubmit',
   'SessionStart',
   'SessionEnd',
@@ -115,7 +122,8 @@ if (native) {
     for (const key of Object.keys(caps)) {
       if (REJECTED_CAPABILITIES.has(key)) {
         problems.push(
-          `plugin.json: capability \`${key}\` is rejected by muse's validator and must not be declared` +
+          `plugin.json: capability \`${key}\` is rejected by this gate and must not be declared` +
+            ' (the live validator merely warns; see the header note on deliberate strictness)' +
             (key === 'agents'
               ? ' — personas are rendered into subagent prompts instead (see src/personas.ts)'
               : ''),
@@ -197,7 +205,7 @@ const claude = readJson('.claude-plugin/plugin.json', { required: false });
 if (claude?.capabilities) {
   for (const key of Object.keys(claude.capabilities)) {
     if (REJECTED_CAPABILITIES.has(key)) {
-      problems.push(`.claude-plugin/plugin.json: capability \`${key}\` is rejected by muse`);
+      problems.push(`.claude-plugin/plugin.json: capability \`${key}\` is rejected by this gate`);
     }
   }
 }

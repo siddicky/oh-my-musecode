@@ -219,6 +219,9 @@ async function probeMcpServer(command, entryPath, workspace) {
   }
 }
 
+/** Exported for the marketplace-route doctor, which probes the cached bundle entry point. */
+export { probeMcpServer };
+
 /** Renders doctor results as the CLI's printed report. Returns the exit code. */
 export function reportDoctor({ ok, checks }) {
   for (const c of checks) {

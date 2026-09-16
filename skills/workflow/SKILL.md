@@ -92,8 +92,9 @@ reviews.join("\n\n");
 
 Each dispatch runs as a native workflow run — visible in `/workflows` with live
 progress, stop/restart/cancel propagation, and one final result — where the
-install's feature config enables the native Workflow tool (verified on Muse
-1.1.1-R2514.1 aarch64 with `workflow_tool: true`; installs compiled without the
+install's feature config enables the native Workflow tool (Muse 1.3.0-R3057.1
+aarch64: `plugins: true`, `workflow_tool: true`, `workflow_api_v2_rollout: false`;
+installs compiled without the
 script engine report that plainly at launch). Omitted `model`/`effort` fall back
 to the caller map for that subagent type.
 
@@ -108,8 +109,9 @@ one.
 ## Native muse workflows
 
 Muse's own Workflow tool runs the same two patterns on the host's native engine.
-Facts verified on Muse 1.1.1-R2514.1 (feature gates `workflow_tool: true`,
-`workflow_api_v2_rollout: false`):
+Facts on Muse 1.3.0-R3057.1 (feature gates `plugins: true`, `workflow_tool: true`,
+`workflow_api_v2_rollout: false`; contract verified against a real run on the
+1.1.1 build, re-verification on 1.3.0 runs with the schema/headless probes):
 
 - Trigger policy: under `run.workflow_trigger_mode: "explicit"` the native tool
   fires only when the USER's own turn asks for a workflow ("use a workflow",

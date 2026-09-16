@@ -9,11 +9,13 @@
  *
  * On escalation: the design originally called for a named `omm-critic` permission
  * profile so the external codex critic could escalate through a scoped,
- * inspectable grant. muse cannot do that — `execution.permission_profiles`
- * validates as `field_not_activated` and `--permission-profile <id>` reports
- * "profile does not exist". Rather than write config the harness silently
- * ignores, the installer probes for the capability and tells the truth about
- * what is left.
+ * inspectable grant. On builds through 1.1.1 muse could not do that, so
+ * rather than write config the harness silently ignores, the installer
+ * probes for the capability and tells the truth about what is left.
+ * Muse 1.3.0-R3057.1 ships a real `--permission-profile` flag, but no
+ * profile is defined by default (the probe reports `profile does not
+ * exist`) and the enterprise-config shape that defines one is unconfirmed —
+ * so scoping still depends on the preflight result below.
  *
  * On the stable home: this script runs from wherever npm/npx placed the
  * package. Under `npx` that is a prunable cache directory
@@ -34,12 +36,13 @@
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { readdirSync, readFileSync, rmSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 
 import { escalationVerdict } from './preflight.mjs';
+import { doctorPluginRoute, installPluginRoute, uninstallPluginRoute } from './plugin-route.mjs';
 import { mergeSettings, readSettings, writeSettings, unmergeSettings } from './settings-install.mjs';
 import {
   installStableHome,
@@ -72,10 +75,12 @@ function pkgVersion() {
 function printHelp() {
   console.log(`Usage: ${BIN_NAME} <install|uninstall|doctor> [options]
 
-  install    Copy the harness into a stable home and register it with muse
+  install    Install the harness: marketplace plugin route when supported,
+             else a stable home plus muse settings
              [--workspace <path>] [--config-dir <path>] [--dry-run]
 
-  uninstall  Remove muse settings entries and delete the installed harness
+  uninstall  Remove the installed harness: plugin record plus muse settings
+             entries and the installed runtime
              [--config-dir <path>] [--purge]  (--purge also removes the installed skills)
 
   doctor     Verify hooks resolve, the mcp server responds, and skills are visible
@@ -199,46 +204,22 @@ function escalationPreflight(env) {
 
 // --------------------------------------------------------------- marketplace
 
-/** Builds the marketplace registration this installer wants in place. */
-function desiredMarketplace(existing, workspace) {
-  // A relative source only helps when the plugin lives inside the workspace;
-  // otherwise it degrades into ../../../.. chains that break if either moves.
-  const rel = relative(workspace, PLUGIN_ROOT);
-  const inside = rel !== '' && !rel.startsWith('..');
-  const entry = {
-    name: PLUGIN_NAME,
-    source: rel === '' ? './' : inside ? `./${rel}` : PLUGIN_ROOT,
-  };
-
-  const base =
-    existing && typeof existing === 'object'
-      ? structuredClone(existing)
-      : { name: 'workspace-plugins', plugins: [] };
-
-  if (!Array.isArray(base.plugins)) base.plugins = [];
-
-  const index = base.plugins.findIndex((p) => p?.name === PLUGIN_NAME);
-  if (index >= 0) base.plugins[index] = { ...base.plugins[index], ...entry };
-  else base.plugins.push(entry);
-
-  return base;
-}
-
-function readJsonIfPresent(path) {
-  if (!existsSync(path)) return null;
-  try {
-    return JSON.parse(readFileSync(path, 'utf8'));
-  } catch (err) {
-    fail(`${path} exists but is not valid JSON (${err.message}); refusing to overwrite it`);
-  }
+/**
+ * Runs a `muse plugins ...` command against the isolated config dir and
+ * returns `{ status, output }` for the plugin-route module.
+ */
+function runMuseForRoute(cmdArgs, env) {
+  const result = probe(cmdArgs, env);
+  return { status: result.status, output: result.output };
 }
 
 /**
- * True when this build's plugins subsystem is usable at all. Every `muse
- * plugins` command answers "plugins are not available in this build" today,
- * and a registered marketplace yields no skills and no diagnostics. When
+ * True when this build's plugins subsystem is usable at all. On builds through
+ * 1.1.1 every `muse plugins` command reported the subsystem as unavailable,
+ * and a registered marketplace yielded no skills and no diagnostics. When
  * plugins are off, the manifest is inert and delivery has to go through
- * settings + a self-copied stable home instead.
+ * settings + a self-copied stable home instead. Muse 1.3.0-R3057.1 reports
+ * `plugins: true` in its feature config and takes the marketplace route.
  */
 function pluginsSupported(env) {
   const result = probe(['plugins', '--help'], env);
@@ -252,7 +233,7 @@ function reportEscalationPosture(preflight) {
     console.log('  Named permission profiles are available on this build; prefer scoping');
     console.log('  the escalation to a profile over --disable-sandbox.');
   } else {
-    console.log('  This build cannot create a named permission profile, so the escalation');
+    console.log('  No usable named permission profile was found, so the escalation');
     console.log('  CANNOT be scoped to the critic call. Running an external codex/claude');
     console.log('  critic requires launching the whole session with:');
     console.log('');
@@ -279,7 +260,7 @@ function runInstall(args) {
 
     if (preflight.blockReason === 'policy-forbids-bypass') {
       console.error('  Enterprise policy sets execution.forbid_sandbox_bypass.');
-      console.error('  muse offers no named permission profile to scope an escalation, so');
+      console.error('  No usable named permission profile is available to scope an escalation, so');
       console.error('  --disable-sandbox is the only route an external codex/claude critic has,');
       console.error('  and this policy forbids it. The external critic cannot run here.\n');
       console.error('  Re-run without the external critic, or use the in-harness critic persona.');
@@ -307,33 +288,28 @@ function runInstall(args) {
   console.log('');
 
   if (pluginsOn) {
-    // Forward-looking path: this build can load the native manifest directly.
-    // No stable-home copy needed here — a real plugin loader would own its
-    // own caching/durability guarantees, the same way this installer owns
-    // them for the settings route below. KNOWN GAP, stated plainly rather
-    // than silently: `uninstall` and `doctor` do not support this route at
-    // all (uninstall refuses outright; doctor would just report nothing
-    // installed). No muse build available anywhere at the time this was
-    // written (1.0.3 through 1.1.1, the latest checked) enables plugins, so
-    // this whole branch is untested and untestable in practice — building
-    // out uninstall/doctor support for a subsystem nobody can currently run
-    // would be speculation, not verified behavior. Revisit once a build that
-    // actually activates plugins exists.
-    const marketplacePath = join(args.workspace, '.agents', 'plugins', 'marketplace.json');
-    const existing = readJsonIfPresent(marketplacePath);
-    const desired = desiredMarketplace(existing, args.workspace);
-    const nextContents = JSON.stringify(desired, null, 2) + '\n';
-    const changed = (existing ? readFileSync(marketplacePath, 'utf8') : null) !== nextContents;
-
-    console.log('Delivery: plugin marketplace (this build supports plugins).');
-    if (args.dryRun) {
-      console.log(changed ? `  Would write ${marketplacePath}` : `  ${marketplacePath} already current.`);
-    } else if (changed) {
-      mkdirSync(dirname(marketplacePath), { recursive: true });
-      writeFileSync(marketplacePath, nextContents, 'utf8');
-      console.log(`  Registered ${marketplacePath}`);
-    } else {
-      console.log(`  ${marketplacePath} already current.`);
+    // Primary route on builds with plugin support (Muse 1.3.0-R3057.1):
+    // stage a pruned bundle, live-validate it, then
+    // `plugins install <bundle> --scope user` + approve + enable.
+    //
+    // Supersession note: the earlier design wrote
+    // `<workspace>/.agents/plugins/marketplace.json` by hand, but the live
+    // binary does not honor that file — with it present
+    // `plugins list --available` still reports `{"available":[]}`, and
+    // `marketplace add` only registers a source that already contains a
+    // catalog. The direct path install is the supported route, so the
+    // hand-written file is gone; `plugins install` owns caching/durability
+    // in muse's own store, the same way this installer owns them for the
+    // settings route below.
+    try {
+      installPluginRoute({
+        runMuse: (cmdArgs) => runMuseForRoute(cmdArgs, env),
+        pluginRoot: PLUGIN_ROOT,
+        pluginName: PLUGIN_NAME,
+        dryRun: args.dryRun,
+      });
+    } catch (err) {
+      fail(err.message);
     }
   } else {
     console.log('Delivery: muse settings (this build reports "plugins are not available").');
@@ -448,17 +424,24 @@ function runUninstall(args) {
   const settingsPath = join(configDir, 'settings.json');
   const pluginsOn = pluginsSupported(env);
 
-  if (pluginsOn) {
-    fail(
-      'uninstall does not yet support the plugin-marketplace delivery route ' +
-        '(this build reported plugins as supported). Remove the marketplace ' +
-        'entry from .agents/plugins/marketplace.json by hand.',
-    );
-  }
-
   console.log(`${BIN_NAME} uninstall`);
   console.log(`  config dir: ${configDir}`);
   console.log('');
+
+  // The marketplace route owns its record in muse's plugin store, so it is
+  // removed first; the settings cleanup below still runs (a machine upgraded
+  // from a plugins-off build can have both), and both tolerate absence, so a
+  // second uninstall exits clean.
+  if (pluginsOn) {
+    try {
+      uninstallPluginRoute({
+        runMuse: (cmdArgs) => runMuseForRoute(cmdArgs, env),
+        pluginName: PLUGIN_NAME,
+      });
+    } catch (err) {
+      fail(err.message);
+    }
+  }
 
   let current;
   try {
@@ -522,7 +505,7 @@ function runUninstall(args) {
 async function runDoctorVerb(args) {
   // Dynamic import: doctor.mjs pulls in the MCP SDK client, which only
   // `doctor` needs (see the top-of-file note by the static imports).
-  const { runDoctor, reportDoctor } = await import('./doctor.mjs');
+  const { runDoctor, reportDoctor, probeMcpServer } = await import('./doctor.mjs');
 
   const env = museSubprocessEnv(args.configDir);
   const configDir = museConfigDir(args.configDir);
@@ -531,6 +514,26 @@ async function runDoctorVerb(args) {
   console.log(`${BIN_NAME} doctor`);
   console.log(`  config dir: ${configDir}`);
   console.log('');
+
+  // On builds with plugin support the settings route was never taken, so
+  // its checks (stable home, settings entries, user-scope skills) would
+  // report an install that is actually healthy as broken. Check the plugin
+  // record, its capabilities, and the cached bundle instead.
+  if (pluginsSupported(env)) {
+    const expectedSkillIds = readdirSync(join(PLUGIN_ROOT, 'skills'), { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+      .sort();
+    const checks = await doctorPluginRoute({
+      runMuse: (cmdArgs) => runMuseForRoute(cmdArgs, env),
+      pluginName: PLUGIN_NAME,
+      version: pkgVersion(),
+      expectedSkillIds,
+      workspace: args.workspace,
+      probeMcp: probeMcpServer,
+    });
+    process.exit(reportDoctor({ ok: checks.every((c) => c.ok), checks }));
+  }
 
   const result = await runDoctor({
     settingsPath,
