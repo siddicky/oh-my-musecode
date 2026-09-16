@@ -117,19 +117,37 @@ subsystem there. The installer detects this response and installs the eight skil
 user scope, then registers the hooks and MCP server directly in Muse settings.
 
 Close and reopen Muse after installation so it reloads the settings. Then check
-the complete installation and confirm that Muse can see the skills:
+the complete installation:
 
 ```bash
 npx -y @siddicky/oh-my-musecode doctor
-muse skills list --source user
 ```
 
-`doctor` must end with `doctor: healthy`. The skill list must include
-`deep-interview`, `deep-dive`, `trace`, `ralplan`, `ralph`, `team`, `cancel`,
-and `workflow`. The `--source user` filter is intentional because the fallback
-installer installs these skills into Muse's personal skill root. Merely cloning
-this repository does not register its top-level `skills/` directory as a Muse
-project skill source.
+`doctor` must end with `doctor: healthy`. To confirm by hand that Muse sees the
+skills, list the source the route you got actually uses: on Muse 1.3.0 the
+marketplace route publishes them at plugin scope, so use
+`muse skills list --source plugin` and expect eight `plugin:oh-my-musecode:<id>`
+entries. Only on a build without plugin support does the fallback installer put
+them in Muse's personal skill root, where `muse skills list --source user` shows
+them at `scope: "user"`. Either way the eight ids are `deep-interview`,
+`deep-dive`, `trace`, `ralplan`, `ralph`, `team`, `cancel`, and `workflow`.
+Merely cloning this repository does not register its top-level `skills/`
+directory as a Muse project skill source.
+
+If the commands above print a version older than the one you asked for — or fail
+with `unknown argument: install` — `npm exec` resolved an already-installed copy
+from an ancestor directory instead of fetching from the registry. It prefers
+such a local install even when the spec is version-pinned, so a stray
+`node_modules/@siddicky/oh-my-musecode` in a parent directory (a `package.json`
+in your home directory is the usual culprit) shadows every `npx` run beneath it.
+Check with `npx -y @siddicky/oh-my-musecode --version` and remove the stale
+install before retrying.
+
+Running these commands from inside a clone of this repository does not work
+either: `npm exec` matches the checkout's own `package.json` name, skips the
+registry, and exits `127` with `sh: oh-my-musecode: command not found` because
+the checkout's bin is not linked. From a clone, call the script directly with
+`node scripts/install.mjs install`.
 
 Under `npx`, the invoking package lives in a prunable npm cache directory
 (`~/.npm/_npx/<hash>/...`) that npm is free to clean up at any time. Before this
@@ -144,8 +162,16 @@ versioned home under the muse config directory —
 
 `install` first probes the local `muse` build. On Muse 1.3.0-R3057.1
 `muse plugins --help` lists the full management surface (`install`, `list`,
-`inspect`, `approve`, `validate`, `marketplace`, …) and the installer registers
-the marketplace entry. On builds through 1.1.1 the probe reported the plugins
+`inspect`, `approve`, `validate`, `marketplace`, …) and the installer takes
+the direct bundle route: it stages a pruned bundle (with built `dist/` plus
+the dependency closure) and runs `plugins install <bundle>` + `approve` +
+`enable`. It does NOT run `muse plugins marketplace add <git-url>` — a git
+marketplace checkout lacks the built `dist/mcp/state-server.js` (gitignored),
+so `plugins list --available` reports that source as skipped with
+`missing-capability-path: plugin file is not readable`. If you see that
+error, remove the git marketplace (`muse plugins marketplace remove
+<name>`) and reinstall via the installer instead. On builds through
+1.1.1 the probe reported the plugins
 subsystem as unavailable, and registering `.agents/plugins/marketplace.json`
 anyway just yielded `muse skills list --source plugin --json` →
 `{"skills":[],"diagnostics":[]}` — no discovery, no error, nothing delivered.
@@ -208,14 +234,21 @@ hooks (`SessionStart`, `Stop`, `UserPromptSubmit`) resolve inside the
 verified stable home, handshakes the configured server, and confirms the 8
 user-scope skills.
 
-As a secondary manual check, you can also confirm the skills installed directly:
+As a secondary manual check, you can also confirm the skills installed directly.
+On Muse 1.3.0 (marketplace route) they are plugin-scoped:
 
 ```bash
-muse skills list --source user
+muse skills list --source plugin
 ```
 
-All 8 (`deep-interview`, `deep-dive`, `trace`, `ralplan`, `ralph`, `team`,
-`cancel`, `workflow`) should appear with `scope: "user"`.
+All 8 appear as `plugin:oh-my-musecode:<id>` with `scope: "plugin"`. On a build
+without plugin support, the fallback route installs them into the personal skill
+root instead, so use `muse skills list --source user` and expect the same 8
+(`deep-interview`, `deep-dive`, `trace`, `ralplan`, `ralph`, `team`, `cancel`,
+`workflow`) at `scope: "user"`. Seeing user-scope copies *and* a healthy plugin
+record usually means the machine was upgraded from a plugins-off build: the
+user-scope ones are stale leftovers, and `uninstall --purge` on the old version
+(or deleting them from `$CONFIG_DIR/skills/`) clears them.
 
 ## Publishing releases
 

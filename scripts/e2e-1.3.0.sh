@@ -2,8 +2,10 @@
 # Sandbox end-to-end for the 1.3.0 marketplace route, against the REAL binary.
 #
 # Isolated XDG_CONFIG_HOME + XDG_DATA_HOME throughout, so the developer's real
-# muse state is never touched (a final guard asserts the real plugin store
-# still has no oh-my-musecode record). Skips cleanly when `muse` is missing.
+# muse state is never touched (a final guard snapshots the real plugin store
+# before the run and asserts it is byte-identical afterwards, so the check holds
+# whether or not the developer has a real install). Skips cleanly when `muse` is
+# missing.
 #
 # The machine's feature-config is seeded into the sandbox data home first:
 # with an empty data home the binary fail-closes plugins to "not available"
@@ -38,6 +40,22 @@ cp "$HOME/.local/share/muse/feature-config/"*.json "$DATA/muse/feature-config/"
 
 step() { echo "e2e: $*"; }
 
+# The real-store guard below is a before/after comparison, not an absence
+# assertion: a developer who followed the README has a real install, and the
+# property under test is that this sandbox run does not perturb it.
+real_store() {
+  env -u XDG_CONFIG_HOME -u XDG_DATA_HOME muse plugins list --json | python3 -c "
+import sys, json
+print(json.dumps(sorted(
+    (r['id'], r.get('version'), r.get('enabled'), r.get('trust'),
+     r.get('manifest_sha256'), r.get('package_sha256'), r.get('updated_at'),
+     p.get('active'))
+    for p in json.load(sys.stdin).get('plugins', [])
+    for r in [p['record']]
+), sort_keys=True))"
+}
+REAL_BEFORE="$(real_store)"
+
 step "install via the marketplace route"
 out="$(node "$ROOT/scripts/install.mjs" install --workspace "$WS" --config-dir "$CFG")"
 echo "$out" | grep -q "Delivery: plugin marketplace" || { echo "e2e: FAIL — wrong route"; echo "$out"; exit 1; }
@@ -63,10 +81,13 @@ node "$ROOT/scripts/install.mjs" uninstall --config-dir "$CFG" | grep -q "Remove
 node "$ROOT/scripts/install.mjs" uninstall --config-dir "$CFG" >/dev/null
 
 step "real plugin store untouched"
-env -u XDG_CONFIG_HOME -u XDG_DATA_HOME muse plugins list --json | python3 -c "
-import sys,json
-ids=[p['record']['id'] for p in json.load(sys.stdin).get('plugins',[])]
-assert 'oh-my-musecode' not in ids, ids
-print('real store clean:', ids)"
+REAL_AFTER="$(real_store)"
+if [ "$REAL_BEFORE" != "$REAL_AFTER" ]; then
+  echo "e2e: FAIL — sandbox run changed the real plugin store"
+  echo "  before: $REAL_BEFORE"
+  echo "  after:  $REAL_AFTER"
+  exit 1
+fi
+echo "real store unchanged: $REAL_AFTER"
 
 echo "e2e: PASS — marketplace install, doctor, headless exec, hook fire, 8 skills, uninstall"

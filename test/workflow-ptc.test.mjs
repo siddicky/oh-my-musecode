@@ -199,3 +199,34 @@ test('Promise.all over tools.* returns results in dispatch order', async () => {
     },
   );
 });
+
+test('a throwing tool rejects with a catchable Error, not a bare string', async () => {
+  await withInterpreter(
+    {
+      config: {
+        ptc: {
+          boom: async () => {
+            const error = new Error('upstream 503');
+            error.name = 'UpstreamError';
+            throw error;
+          },
+        },
+      },
+    },
+    async (interpreter) => {
+      const response = await interpreter.evaluate(
+        'us003-reject-shape',
+        `let caught = 'no throw';
+         try { await tools.boom({}); }
+         catch (e) { caught = JSON.stringify({ isError: e instanceof Error, name: e.name, message: e.message }); }
+         caught;`,
+      );
+      assert.equal(response.ok, true);
+      assert.deepEqual(JSON.parse(response.result), {
+        isError: true,
+        name: 'UpstreamError',
+        message: 'upstream 503',
+      });
+    },
+  );
+});

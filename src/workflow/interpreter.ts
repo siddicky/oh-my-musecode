@@ -69,6 +69,26 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * Host errors cross into the sandbox as real `Error` objects, not bare strings:
+ * agent-authored code catches with `e.message`, which reads `undefined` off a
+ * string rejection. The host error's own name is preserved so a cancellation is
+ * distinguishable from a dispatcher failure inside the script.
+ */
+function rejectWithHostError(
+  context: QuickJSContext,
+  deferred: PendingPromise,
+  error: unknown,
+): void {
+  const name = error instanceof Error && error.name.length > 0 ? error.name : 'Error';
+  const errorHandle = context.newError({ name, message: errorMessage(error) });
+  try {
+    deferred.reject(errorHandle);
+  } finally {
+    errorHandle.dispose();
+  }
+}
+
 function formatConsoleArg(value: unknown): string {
   if (typeof value === 'string') return value;
   try {
@@ -466,12 +486,7 @@ export class WorkflowInterpreter {
         },
         (error: unknown) => {
           this.settleBridge(scope, runtime, deferred, () => {
-            const messageHandle = context.newString(errorMessage(error));
-            try {
-              deferred.reject(messageHandle);
-            } finally {
-              messageHandle.dispose();
-            }
+            rejectWithHostError(context, deferred, error);
           });
         },
       );
@@ -496,12 +511,7 @@ export class WorkflowInterpreter {
         settle();
       } catch (error: unknown) {
         try {
-          const messageHandle = scope.session.context.newString(errorMessage(error));
-          try {
-            deferred.reject(messageHandle);
-          } finally {
-            messageHandle.dispose();
-          }
+          rejectWithHostError(scope.session.context, deferred, error);
         } catch {
           // The context is unusable; dispose the deferred so teardown finds
           // no surviving handles. The eval then degrades to a timeout.
@@ -588,12 +598,7 @@ export class WorkflowInterpreter {
             },
             (error: unknown) => {
               this.settleBridge(scope, runtime, deferred, () => {
-                const messageHandle = context.newString(errorMessage(error));
-                try {
-                  deferred.reject(messageHandle);
-                } finally {
-                  messageHandle.dispose();
-                }
+                rejectWithHostError(context, deferred, error);
               });
             },
           );
