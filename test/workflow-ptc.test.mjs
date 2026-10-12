@@ -158,6 +158,116 @@ test('guarded mode ignores the resolver', async () => {
   );
 });
 
+test('guarded mode: calling an unlisted tool throws TypeError in the VM and never reaches the host', async () => {
+  let hostCalls = 0;
+  let resolverCalls = 0;
+  await withInterpreter(
+    {
+      config: {
+        ptc: {
+          listed: async () => {
+            hostCalls += 1;
+            return 'listed';
+          },
+        },
+      },
+      toolResolver: () => {
+        resolverCalls += 1;
+        return async () => 'resolved';
+      },
+    },
+    async (interpreter) => {
+      const response = await interpreter.evaluate(
+        'us003-guarded-unlisted-call',
+        `let caught = 'no throw';
+         try { await tools.secretTool({}); }
+         catch (e) { caught = JSON.stringify({ isTypeError: e instanceof TypeError, message: e.message }); }
+         caught;`,
+      );
+      assert.equal(response.ok, true);
+      const caught = JSON.parse(response.result);
+      assert.equal(caught.isTypeError, true);
+      assert.match(caught.message, /not a function/);
+      assert.equal(hostCalls, 0);
+      assert.equal(resolverCalls, 0);
+    },
+  );
+});
+
+test('unleashed mode: calling an unresolvable tool throws TypeError without invoking any tool', async () => {
+  let hostCalls = 0;
+  await withInterpreter(
+    {
+      config: {
+        ptcMode: 'unleashed',
+        ptc: {
+          listed: async () => {
+            hostCalls += 1;
+            return 'listed';
+          },
+        },
+      },
+      toolResolver: () => undefined,
+    },
+    async (interpreter) => {
+      const response = await interpreter.evaluate(
+        'us003-unleashed-unresolvable-call',
+        `let caught = 'no throw';
+         try { await tools.nope({}); }
+         catch (e) { caught = JSON.stringify({ isTypeError: e instanceof TypeError, message: e.message }); }
+         caught;`,
+      );
+      assert.equal(response.ok, true);
+      const caught = JSON.parse(response.result);
+      assert.equal(caught.isTypeError, true);
+      assert.match(caught.message, /not a function/);
+      assert.equal(hostCalls, 0);
+    },
+  );
+});
+
+test('unleashed mode: a tool the resolver drops after lookup fails on the host as Unknown tool', async () => {
+  let available = true;
+  let flakyCalls = 0;
+  await withInterpreter(
+    {
+      config: {
+        ptcMode: 'unleashed',
+        ptc: {
+          drop: async () => {
+            available = false;
+            return 'dropped';
+          },
+        },
+      },
+      toolResolver: (name) =>
+        name === 'flaky' && available
+          ? async () => {
+              flakyCalls += 1;
+              return 'ran';
+            }
+          : undefined,
+    },
+    async (interpreter) => {
+      // Capture tools.flaky while it resolves, then drop it host-side before calling.
+      const response = await interpreter.evaluate(
+        'us003-unleashed-dropped',
+        `const flaky = tools.flaky;
+         await tools.drop({});
+         let caught = 'no throw';
+         try { await flaky({}); }
+         catch (e) { caught = JSON.stringify({ isError: e instanceof Error, message: e.message }); }
+         caught;`,
+      );
+      assert.equal(response.ok, true, response.error);
+      const caught = JSON.parse(response.result);
+      assert.equal(caught.isError, true);
+      assert.equal(caught.message, 'Unknown tool "flaky": the resolver has no such tool.');
+      assert.equal(flakyCalls, 0);
+    },
+  );
+});
+
 test('unleashed allowlist wins over the resolver for the same name', async () => {
   await withInterpreter(
     {
