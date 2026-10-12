@@ -24,26 +24,28 @@ closed world check: typeof tools.listDir -> undefined
 
 --- attempt 2: unleashed mode (same cap configured) ---
   [host] tools.repoName (static allowlist) -> "oh-my-musecode"
-  [host] tools.listDir (resolved dynamically) -> 7 entries
-  [host] tools.readFile (resolved dynamically) -> 5575 chars
-  [host] tools.readFile (resolved dynamically) -> 827 chars
-  [host] tools.readFile (resolved dynamically) -> 24450 chars
+  [host] tools.listDir (resolved dynamically) -> 8 entries
+  [host] tools.readFile (resolved dynamically) -> 7589 chars
+  [host] tools.readFile (resolved dynamically) -> 937 chars
+  [host] tools.readFile (resolved dynamically) -> 24966 chars
+  [host] tools.readFile (resolved dynamically) -> 12035 chars
   [host] tools.readFile (resolved dynamically) -> 5003 chars
-  [host] tools.readFile (resolved dynamically) -> 1647 chars
+  [host] tools.readFile (resolved dynamically) -> 1715 chars
   [host] tools.readFile (resolved dynamically) -> 9471 chars
-  [host] tools.readFile (resolved dynamically) -> 3442 chars
+  [host] tools.readFile (resolved dynamically) -> 4672 chars
 result: ok=true
-host observed 9 tool call(s); cap ignored.
+host observed 10 tool call(s); cap ignored.
 report:
-  host.ts: 182 lines
-  index.ts: 32 lines
-  interpreter.ts: 701 lines
+  host.ts: 245 lines
+  index.ts: 36 lines
+  interpreter.ts: 710 lines
+  native.ts: 316 lines
   store.ts: 170 lines
-  tool.ts: 41 lines
+  tool.ts: 50 lines
   transform.ts: 245 lines
-  types.ts: 113 lines
+  types.ts: 146 lines
 
 --- attempt 3: session persistence ---
-recall: oh-my-musecode has 7 workflow sources; longest is shown above.
+recall: oh-my-musecode has 8 workflow sources; longest is shown above.
 
 === done ===

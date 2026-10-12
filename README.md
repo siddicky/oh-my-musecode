@@ -97,7 +97,7 @@ node examples/unleashed-recon.mjs
 ```
 
 It runs one recon script guarded (trips `maxPtcCalls=3`, unlisted tools absent)
-then unleashed (9 calls sail through, resolver tools discovered dynamically),
+then unleashed (10 calls sail through, resolver tools discovered dynamically),
 plus a session-persistence recall. The captured terminal output is checked in at
 `examples/unleashed-recon.output.txt`.
 
