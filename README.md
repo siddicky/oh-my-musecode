@@ -392,6 +392,3 @@ with project-specific conventions kept out of the persona.
 
 Licensed under the MIT License — see [LICENSE](LICENSE), which retains the
 upstream copyright notice as MIT requires.
-
-
-Rework verification: rework-verify-79be07fe19920821898a
